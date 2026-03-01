@@ -70,6 +70,16 @@ else:
 server = Server(settings.APP_NAME)
 app_http: FastMCP = FastMCP(settings.APP_NAME)
 
+
+def is_subpath(path, allowed_dirs):
+    real = os.path.realpath(path)
+    for allowed in allowed_dirs:
+        allowed_real = os.path.realpath(allowed)
+        if os.path.commonpath([real, allowed_real]) == allowed_real:
+            return True
+    return False
+
+
 async def run_shell_command( command: str, cwd: str,shell: str = "bash") -> Dict[str, Any]:
     """
     Execute a shell command safely and return its output.
@@ -82,9 +92,15 @@ async def run_shell_command( command: str, cwd: str,shell: str = "bash") -> Dict
     Returns:
         Dict[str, Any]: Command execution results including stdout, stderr, and exit code
     """
-    if not settings.is_path_allowed(cwd):
-        raise ValueError(f"Directory '{cwd}' is not in the allowed directories list")
+    # absolute_cwd =  os.path.abspath(cwd)
+    # if not settings.is_path_allowed(absolute_cwd):
+    #     raise ValueError(f"Directory '{absolute_cwd}' is not in the allowed directories list")
     
+    absolute_cwd = os.path.realpath(os.path.abspath(cwd))
+
+    if not is_subpath(absolute_cwd, settings.ALLOWED_DIRECTORIES):
+        raise ValueError("Directory not allowed")
+
     if shell not in settings.ALLOWED_SHELLS:
         raise ValueError(f"Shell '{shell}' is not allowed. Available shells: {list(settings.ALLOWED_SHELLS.keys())}")
     

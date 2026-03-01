@@ -6,6 +6,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 > 🚀 Add secure shell command execution capabilities to your AI applications with the Shell MCP Server! Built for the Model Context Protocol.
+> 🌍 Support `stdio` and `http` protocol.
 
 <a href="https://glama.ai/mcp/servers/@blazickjp/shell-mcp-server">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@blazickjp/shell-mcp-server/badge" alt="Shell Server MCP server" />
@@ -20,6 +21,21 @@
 - 🛡️ **Safe by Default** - Built-in directory and shell validation
 
 ## 🚀 Quick Start
+
+### Compile
+```bash
+uv pip install . 
+```
+
+### Run
+```bash
+shell-mcp-server -d . -t http
+``` 
+
+### Inspector
+```bash
+npx @modelcontextprotocol/inspector
+```
 
 ### Installation
 
