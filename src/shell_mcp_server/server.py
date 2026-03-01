@@ -21,6 +21,9 @@ from typing import Dict, Any, List
 import mcp
 import mcp.types as types
 from mcp.server import Server, InitializationOptions, NotificationOptions
+
+from fastmcp import FastMCP
+
 from .config import Settings
 
 
@@ -28,9 +31,14 @@ from .config import Settings
 def parse_args() -> tuple[List[str], Dict[str, str]]:
     """Parse command line arguments for directories and shells."""
     parser = argparse.ArgumentParser(description="Shell MCP Server")
-    parser.add_argument('directories', nargs='+', help='Allowed directories for command execution')
+    parser.add_argument('-d','--directories', nargs='+', help='Allowed directories for command execution')
     parser.add_argument('--shell', action='append', nargs=2, metavar=('name', 'path'),
                        help='Shell specification in format: name path')
+
+    parser.add_argument('-t','--transport', type=str, default='stdio', choices=['stdio', 'http'])
+    parser.add_argument('-H','--host', type=str, default='0.0.0.0')
+    parser.add_argument('-P','--port', type=int, default=8000)
+    parser.add_argument('-p','--path', type=str, default='/mcp')
     
     args = parser.parse_args()
     
@@ -42,24 +50,27 @@ def parse_args() -> tuple[List[str], Dict[str, str]]:
     # Default to system shell if none specified
     if not shells:
         if sys.platform == 'win32':
-            shells = {'cmd': 'cmd.exe', 'powershell': 'powershell.exe'}
+            shells = {'bash': 'powershell.exe', 'cmd': 'cmd.exe', 'powershell': 'powershell.exe'}
         else:
             shells = {'bash': '/bin/bash', 'sh': '/bin/sh'}
     
-    return args.directories, shells
+    return args, shells
 
 
 # Initialize server settings and create server instance - skip arg parsing for tests
 if 'pytest' not in sys.modules:
-    directories, shells = parse_args()
-    settings = Settings(directories=directories, shells=shells)
+    args, shells = parse_args()
+    settings = Settings(args, shells=shells)
 else:
-    settings = Settings(directories=['/tmp'], shells={'bash': '/bin/bash'})
+    args = { 
+        "directories": ['/tmp']
+    }
+    settings = Settings(args, shells={'bash': '/bin/bash'})
 
 server = Server(settings.APP_NAME)
+app_http: FastMCP = FastMCP(settings.APP_NAME)
 
-
-async def run_shell_command(shell: str, command: str, cwd: str) -> Dict[str, Any]:
+async def run_shell_command( command: str, cwd: str,shell: str = "bash") -> Dict[str, Any]:
     """
     Execute a shell command safely and return its output.
     
@@ -173,17 +184,43 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[types.TextCont
         return [types.TextContent(type="text", text=f"Error: Unknown tool {name}")]
 
     command = arguments["command"]
-    shell = arguments["shell"]
+    shell = arguments.get("shell","bash")
     cwd = arguments["cwd"]
 
     try:
-        result = await run_shell_command(shell, command, cwd)
+        result = await run_shell_command( command, cwd,shell)
+        return [types.TextContent(type="text", text=str(result))]
+    except Exception as e:
+        return [types.TextContent(type="text", text=f"Error: {str(e)}")]
+
+# Define your tool (same logic as before!)
+@app_http.tool()
+def get_weather(location: str) -> str:
+    """Get weather for a location."""
+    logger.info(f"Starting get_weather arguments:{location}")
+    return f"Weather in {location}: Sunny, 72°F"
+
+@app_http.tool()
+async def execute_command(command:str, cwd:str, shell:str = "bash") -> List[types.TextContent]:
+    """Execute a shell command"""
+    try:
+        result = await run_shell_command( command, cwd,shell)
         return [types.TextContent(type="text", text=str(result))]
     except Exception as e:
         return [types.TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-async def main():
+
+
+def main_http():
+    app_http.run(
+        transport="http", 
+        host=settings.HOST, 
+        port=settings.PORT,
+        path=settings.PATH
+    )
+
+async def main_stdio():
     """Main entry point for the shell MCP server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -198,3 +235,9 @@ async def main():
                 ),
             ),
         )
+
+def main():
+    if settings.TRANSPORT == "stdio":
+        asyncio.run(main_stdio())
+    elif settings.TRANSPORT== "http":
+        main_http()

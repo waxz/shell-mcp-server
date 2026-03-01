@@ -7,10 +7,10 @@ This module defines the settings and configuration options for the shell MCP ser
 
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
-from typing import List, Dict
+from typing import List, Dict,Any
 import os
-
-
+import sys
+    
 class Settings(BaseSettings):
     """
     Application settings class using pydantic_settings.
@@ -28,11 +28,25 @@ class Settings(BaseSettings):
     COMMAND_TIMEOUT: int = 30
     ALLOWED_DIRECTORIES: List[str] = []
     ALLOWED_SHELLS: Dict[str, str] = {}
+    TRANSPORT: str = "stdio"
+    HOST:str = "0.0.0.0"
+    PORT : int = 8000
+    PATH : str = "/mpc"
 
-    def __init__(self, directories: List[str], shells: Dict[str, str]):
+
+    def __init__(self, args: Dict[str, Any], shells: Dict[str, str]):
         super().__init__()
-        self.ALLOWED_DIRECTORIES = [os.path.abspath(d) for d in directories]
+        if "directories" in args:
+            self.ALLOWED_DIRECTORIES = [os.path.abspath(d) for d in args.directories]
         self.ALLOWED_SHELLS = shells
+        if "transport" in args:
+            self.TRANSPORT = args.transport
+        if "host" in args:
+            self.HOST = args.host
+        if "port" in args:
+            self.PORT = args.port
+        if "path" in args:
+            self.PATH = args.path
 
     def is_path_allowed(self, path: str) -> bool:
         """Check if a path is within any of the allowed directories."""

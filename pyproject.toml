@@ -1,13 +1,14 @@
 [project]
 name = "shell-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shell MCP Server for Claude AI Application"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0"
+    "pydantic-settings>=2.0.0",
+    "fastmcp>=3.0.0"
 ]
 
 [[project.authors]]
