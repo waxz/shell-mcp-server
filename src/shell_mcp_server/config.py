@@ -7,10 +7,11 @@ This module defines the settings and configuration options for the shell MCP ser
 
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
-from typing import List, Dict,Any
+from typing import List, Dict,Any,Optional
 import os
 import sys
-    
+import toml
+
 class Settings(BaseSettings):
     """
     Application settings class using pydantic_settings.
@@ -27,7 +28,9 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     COMMAND_TIMEOUT: int = 30
     ALLOWED_DIRECTORIES: List[str] = []
+    ALLOWED_COMMANDS: Dict[str, Any] = {}
     ALLOWED_SHELLS: Dict[str, str] = {}
+    SAFETY_MODE: str = "strict"
     TRANSPORT: str = "stdio"
     HOST:str = "0.0.0.0"
     PORT : int = 8000
@@ -36,7 +39,7 @@ class Settings(BaseSettings):
 
     def __init__(self, args: Dict[str, Any], shells: Dict[str, str]):
         super().__init__()
-        if "directories" in args:
+        if "directories" in args and args.directories and isinstance(args.directories,list):
             self.ALLOWED_DIRECTORIES = [os.path.abspath(d) for d in args.directories]
         self.ALLOWED_SHELLS = shells
         if "transport" in args:
@@ -48,6 +51,27 @@ class Settings(BaseSettings):
         if "path" in args:
             self.PATH = args.path
 
+        if "config" in args and args.config and os.path.exists(args.config):
+            CONFIG = toml.load(args.config)
+            if "ALLOWED_COMMANDS" in CONFIG:
+                self.ALLOWED_COMMANDS = CONFIG["ALLOWED_COMMANDS"]
+            if "ALLOWED_DIRECTORIES" in CONFIG:
+                self.ALLOWED_DIRECTORIES = CONFIG["ALLOWED_DIRECTORIES"]
+            if "ALLOWED_SHELLS" in CONFIG:
+                self.ALLOWED_SHELLS = CONFIG["ALLOWED_SHELLS"]
+            if "COMMAND_TIMEOUT" in CONFIG:
+                self.COMMAND_TIMEOUT = CONFIG["COMMAND_TIMEOUT"]
+            if "TRANSPORT" in CONFIG:
+                self.TRANSPORT = CONFIG["TRANSPORT"]
+            if "HOST" in CONFIG:
+                self.HOST = CONFIG["HOST"]
+            if "PORT" in CONFIG:
+                self.PORT = CONFIG["PORT"]
+            if "PATH" in CONFIG:
+                self.PATH = CONFIG["PATH"]
+            if "SAFETY_MODE" in CONFIG:
+                self.SAFETY_MODE = CONFIG["SAFETY_MODE"]
+
     def is_path_allowed(self, path: str) -> bool:
         """Check if a path is within any of the allowed directories."""
         abs_path = os.path.abspath(path)
@@ -56,3 +80,12 @@ class Settings(BaseSettings):
         )
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Global settings (loaded once at startup)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SETTINGS:Optional[Settings] = None
+

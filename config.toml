@@ -1,0 +1,11 @@
+
+# ALLOWED_BASH= ["/bin/bash","/bin/sh"]
+# ALLOWED_POWERSHELL= ["powershell.exe","pwsh.exe"]
+# ALLOWED_CMD= ["cmd.exe"]
+ALLOWED_DIRECTORIES = ['.']
+
+# SAFETY_MODE = "strict"
+SAFETY_MODE = "relax"
+
+ALLOWED_COMMANDS.install = { command = "ls", shell = "bash", cwd = "." }
+ALLOWED_COMMANDS.test = { command = "pytest", shell = "bash", cwd = "." }

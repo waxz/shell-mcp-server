@@ -29,12 +29,20 @@ uv pip install .
 
 ### Run
 ```bash
-shell-mcp-server -d . -t http
+shell-mcp-server -d . -t http -c ./config.toml
 ``` 
 
 ### Inspector
 ```bash
 npx @modelcontextprotocol/inspector
+```
+
+### Docker
+- https://hub.docker.com/r/microsoft/windows-nanoserver
+
+```bash
+docker build -f Dockerfile.linux -t mcp-sandbox-linux .
+docker build -f Dockerfile.windows -t mcp-sandbox-windows .
 ```
 
 ### Installation
