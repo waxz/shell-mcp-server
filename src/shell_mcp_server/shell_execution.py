@@ -60,7 +60,7 @@ async def _terminate_process(proc: asyncio.subprocess.Process):
 
     pid = proc.pid
     try:
-        if sys.platform == "win32":
+        if config.SETTINGS.PLATFORM == "windows":
             k = await asyncio.create_subprocess_exec(
                 "taskkill", "/F", "/T", "/PID", str(pid),
                 stdout=asyncio.subprocess.DEVNULL,
@@ -122,28 +122,39 @@ async def run_shell_command(
             f"Available: {list(config.SETTINGS.ALLOWED_SHELLS.keys())}"
         )
 
-    shell_path = config.SETTINGS.ALLOWED_SHELLS[shell]
-
+    # force bash in safety mode,
+    # this is to prevent running commands in the shell
+    # on windows , shell default runs in docker bash
+    # only trusted shell can run in powershell
+    # on linux and macos, shell runs in bash
     if config.SETTINGS.SAFETY_MODE == "strict":
-        if command not in config.SETTINGS.ALLOWED_COMMANDS:
-            raise ValueError(
-                f"Command '{command}' is not allowed. "
-                f"Available: {list(config.SETTINGS.ALLOWED_COMMANDS.keys())}"
-            )
-        cmd_cfg = config.SETTINGS.ALLOWED_COMMANDS[command]
+        shell = "bash"
+
+    if command in config.SETTINGS.TRUSTED_COMMANDS:
+        cmd_cfg = config.SETTINGS.TRUSTED_COMMANDS[command]
         command = cmd_cfg.get("command", False)
         cwd = cmd_cfg.get("cwd", False)
-        if not (command and cwd):
+        shell = cmd_cfg.get("shell", False)
+        if not (command and cwd and shell):
             raise ValueError(f"Incomplete config for '{command}'")
 
+    shell_path = config.SETTINGS.ALLOWED_SHELLS[shell]
+
     # ── Build shell invocation ────────────────────────────────
-    if sys.platform == "win32":
-        if shell in ("wsl", "bash"):
+    if config.SETTINGS.PLATFORM == "windows":
+        if shell in ("wsl"):
             shell_cmd = [
                 shell_path, "--cd", absolute_cwd,
                 "bash", "-c", command,
             ]
-        elif shell == "powershell" or shell_path.endswith("powershell.exe"):
+        
+        elif shell_path.endswith("powershell.exe") or shell in ("bash","powershell"):
+            
+            # run shell in docker container
+            if shell == "bash":
+                # command = f'. $PROFILE; drun "{command}"'
+                command = f'drun "{command}"'
+
             ps = (
                 "$FormatEnumerationLimit=-1; "
                 "[Console]::OutputEncoding="
@@ -152,8 +163,9 @@ async def run_shell_command(
                 "ForEach-Object { $_.TrimEnd() } | "
                 "Where-Object { $_ -ne '' }"
             )
+
             shell_cmd = [
-                shell_path, "-NoProfile",
+                shell_path, #"-NoProfile",
                 "-ExecutionPolicy", "Bypass",
                 "-Command", ps,
             ]
@@ -161,8 +173,11 @@ async def run_shell_command(
             shell_cmd = [shell_path, "/c", command]
         else:
             shell_cmd = [shell_path, "-Command", command]
-    else:
+    elif config.SETTINGS.PLATFORM == "linux":
         shell_cmd = [shell_path, "-c", command]
+    elif config.SETTINGS.PLATFORM == "macos":
+        shell_cmd = [shell_path, "-c", command]
+            
 
     # ── Spawn with own process group ──────────────────────────
     spawn_kw: Dict[str, Any] = dict(
@@ -170,7 +185,7 @@ async def run_shell_command(
         stderr=asyncio.subprocess.PIPE,
         cwd=absolute_cwd,
     )
-    if sys.platform == "win32":
+    if config.SETTINGS.PLATFORM == "windows":
         spawn_kw["creationflags"] = _subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         spawn_kw["start_new_session"] = True

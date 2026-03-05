@@ -4,8 +4,7 @@
 # ALLOWED_CMD= ["cmd.exe"]
 ALLOWED_DIRECTORIES = ['.']
 
-# SAFETY_MODE = "strict"
-SAFETY_MODE = "relax"
+SAFETY_MODE = "strict"
+# SAFETY_MODE = "relax"
 
-ALLOWED_COMMANDS.install = { command = "ls", shell = "bash", cwd = "." }
-ALLOWED_COMMANDS.test = { command = "pytest", shell = "bash", cwd = "." }
+TRUSTED_COMMANDS.uv_install = { command = "uv pip install .", shell = "powershell", cwd = "." }

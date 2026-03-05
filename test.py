@@ -5,6 +5,16 @@ from datetime import datetime
 from fastmcp import Client
 from fastmcp.client.logging import LogMessage
 import time
+import argparse
+
+parser = argparse.ArgumentParser(description="Shell MCP Server Tester")
+
+
+parser.add_argument(
+    "-t", "--transport", type=str, default="stdio", choices=["stdio", "http"]
+)
+args = parser.parse_args()
+
 
 def on_log_message(message):
     level = getattr(message, "level", "info")
@@ -29,9 +39,8 @@ async def sampling_handler(messages, params, context):
     return "Generated response"
 
 
-TEST_MCP_HTTP = True
 
-if TEST_MCP_HTTP:
+if args.transport == "http":
     SERVER = "http://localhost:8000/mcp"
 else:
     from shell_mcp_server import server
@@ -107,6 +116,11 @@ async def main():
         print("  SECTION 2: Path Validation")
         print("=" * 60)
 
+        # uv_install
+        await call(
+            "execute_command", {"command": "uv_install", "shell": "powershell", "cwd": "."}
+        )
+
         # 2a. Valid path (current directory)
         await call(
             "execute_command", {"command": "pwd && ls -la", "shell": "bash", "cwd": "."}
@@ -121,6 +135,27 @@ async def main():
                 "cwd": "/tmp",
             },
         )
+        result = await call(
+            "tmux_execute",
+            {
+                "command": "for i in {1..5}; do echo mcp Tmux processing $i; done",
+                "cwd": ".",
+                "session_name": "mcp_test",
+            },
+        )
+        # 10f. Get output again
+        await call("tmux_get_output", {"session_name": "mcp_test","clear_after":True})
+
+        # tmux_execute_command
+        
+        await call(
+            "tmux_execute", {"command": 'echo "hello mcp" >> a.log && cat a.log', "shell": "bash", "cwd": ".","session_name": "mcp_test1"}
+        )
+        
+        time.sleep(5)
+        await call("tmux_get_output", {"session_name": "mcp_test1","clear_after":False})
+        await call("tmux_list_session", {})
+        # await call("tmux_kill_session", {"session_name": "mcp_test"})
 
         # 2c. Invalid path - outside allowed directories
         # This should fail if path is not in allowed directories
@@ -358,7 +393,6 @@ async def main():
                 "command": "for i in {1..5}; do echo 'Tmux processing $i'; sleep 1; done",
                 "cwd": ".",
                 "session_name": "mcp_test",
-                "clear_after": False,
             },
         )
 
@@ -379,10 +413,10 @@ async def main():
         await call("tmux_get_output", {"session_name": "mcp_test","clear_after":False})
 
         # 10g. Kill tmux session
-        await call("tmux_kill", {"session_name": "mcp_test"})
+        await call("tmux_kill_session", {"session_name": "mcp_test"})
 
         # 10h. List tmux sessions (should be empty again)
-        await call("tmux_list", {})
+        await call("tmux_list_session", {})
 
         # ═══════════════════════════════════════════════════════════
         # SUMMARY

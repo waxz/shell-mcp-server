@@ -19,6 +19,8 @@ import sys
 import argparse
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 import toml
+import uuid
+
 import mcp
 import mcp.types as types
 from mcp.server import Server, InitializationOptions, NotificationOptions
@@ -26,7 +28,8 @@ from mcp.server import Server, InitializationOptions, NotificationOptions
 from fastmcp import FastMCP, Context
 
 from . import config
-from . import utils
+from . import shell_execution
+
 
 
 # Parse command line arguments for directories and shells
@@ -66,7 +69,7 @@ def parse_args() -> tuple[List[str], Dict[str, str]]:
     if not shells:
         if sys.platform == "win32":
             shells = {
-                "bash": "wsl.exe",
+                "bash": "powershell.exe",
                 "cmd": "cmd.exe",
                 "powershell": "powershell.exe",
                 "wsl": "wsl.exe",
@@ -91,7 +94,7 @@ server: FastMCP = FastMCP(config.SETTINGS.APP_NAME)
 
 # Global process registry: pid -> (process, shell_name)
 # running_processes: Dict[int, tuple[asyncio.subprocess.Process, str]] = {}
-from .utils import run_shell_command, running_processes
+from .shell_execution import run_shell_command, running_processes
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -115,7 +118,7 @@ async def execute_command(
         await ctx.warning(line)
 
     try:
-        result = await utils.run_shell_command(
+        result = await shell_execution.run_shell_command(
             command,
             cwd,
             shell,
@@ -216,12 +219,13 @@ async def terminate_all_processes() -> List[types.TextContent]:
 # Commands run in tmux sessions persist even after client disconnect
 # ═══════════════════════════════════════════════════════════════════════
 
-
 @server.tool()
 async def tmux_execute(
     command: str,
     cwd: str,
-    session_name: str = None,
+    ctx: Context,
+    session_name: str,
+    shell: str = "bash",
 ) -> List[types.TextContent]:
     """
     Execute a command in a new tmux session.
@@ -233,97 +237,34 @@ async def tmux_execute(
         session_name: Optional name for the tmux session (auto-generated if not provided)
 
     Returns:
-        Session ID and initial output
+        Session Initial output
     """
-    import uuid
-    import subprocess
-
-    # Validate cwd
-    if not utils.is_subpath(
-        os.path.realpath(os.path.abspath(cwd)), config.SETTINGS.ALLOWED_DIRECTORIES
-    ):
-        return [
-            types.TextContent(type="text", text=f"Error: Directory not allowed: {cwd}")
-        ]
-
+    
     # Generate session name if not provided
     if not session_name:
         session_name = f"mcp_{uuid.uuid4().hex[:8]}"
 
     # Escape command for tmux - wrap in bash -c
-    escaped_command = "bash -c '" + command.replace("'", "'\\''") + "'"
 
-    # Create tmux session and run command
-    # Using -d to detach, -s for session name, -c for working directory
-    try:
-        # First, create a detached session with bash as the default command
-        subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session_name, "-c", cwd, "bash"],
-            capture_output=True,
-            check=True,
-        )
-
-        # Send the command to the session (use C-m for Enter)
-        subprocess.run(
-            ["tmux", "send-keys", "-t", session_name, command, "Enter"],
-            capture_output=True,
-            check=True,
-        )
-
-        # Wait a moment for initial output
-        await asyncio.sleep(0.5)
-
-        # Capture initial output
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session_name, "-p"],
-            capture_output=True,
-            text=True,
-        )
-
-        output = result.stdout or "(Command started in tmux session)"
-
-        return [
-            types.TextContent(
-                type="text",
-                text=f"""
-Tmux Session Started
-====================
-Session: {session_name}
-Command: {command}
-Working Directory: {cwd}
-
-Initial Output:
-{output}
-
-To attach to this session:
-  tmux attach-session -t {session_name}
-
-To kill this session:
-  tmux kill-session -t {session_name}
-
-Or use the tmux_get_output tool to get more output.
-""",
-            )
-        ]
-
-    except subprocess.CalledProcessError as e:
-        return [
-            types.TextContent(
-                type="text", text=f"Error creating tmux session: {e.stderr}"
-            )
-        ]
-    except FileNotFoundError:
-        return [
-            types.TextContent(
-                type="text", text="Error: tmux not found. Please install tmux."
-            )
-        ]
+    # working
+    # drun "tmux send-keys -t mcp_test C-u 'echo clean_test > a.txt' Enter && sleep 0.2 && cat a.txt"
+    
+    # tmux_command = f'tmux new-session -d -s "{session_name}" -c "{cwd}" bash'
+    tmux_command = f"tmux has-session -t {session_name} 2>/dev/null || tmux new-session -s {session_name} -d -c {cwd} bash"
+    await execute_command(tmux_command,cwd,ctx,shell)
+    tmux_command = f"tmux send-keys -t {session_name} '{command}' Enter"
+    await execute_command(tmux_command,cwd,ctx,shell)
+    tmux_command = f"tmux capture-pane -t {session_name} -pJ"
+    return await execute_command(tmux_command,cwd,ctx,shell)
 
 
 @server.tool()
 async def tmux_get_output(
     session_name: str,
+    ctx: Context,
+    cwd: str = ".",
     clear_after: bool = False,
+    shell: str = "bash",
 ) -> List[types.TextContent]:
     """
     Get output from a tmux session.
@@ -335,118 +276,40 @@ async def tmux_get_output(
     Returns:
         Current output from the session
     """
-    import subprocess
 
-    try:
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session_name, "-p"],
-            capture_output=True,
-            text=True,
-        )
-
-        output = result.stdout or "(No output)"
-
-        if clear_after:
-            subprocess.run(
-                ["tmux", "send-keys", "-t", session_name, "C-c"],
-                capture_output=True,
-            )
-
-        return [
-            types.TextContent(
-                type="text",
-                text=f"""
-Session: {session_name}
-========================
-{output.strip()}
-""",
-            )
-        ]
-
-    except subprocess.CalledProcessError as e:
-        return [types.TextContent(type="text", text=f"Error: {e.stderr}")]
-    except FileNotFoundError:
-        return [types.TextContent(type="text", text="Error: tmux not found.")]
-
+    tmux_command = f"tmux capture-pane -t {session_name} -pJ"
+    result = await execute_command(tmux_command,cwd,ctx,shell)
+    if clear_after:
+       tmux_command = f"tmux send-keys -t {session_name} clear Enter"
+       await execute_command(tmux_command,cwd,ctx,shell)
+    return result
 
 @server.tool()
-async def tmux_send_input(
-    session_name: str,
-    input_text: str,
+async def tmux_list_session(
+    ctx: Context,
+    cwd: str = ".",
+    clear_after: bool = False,
+    shell: str = "bash",
 ) -> List[types.TextContent]:
-    """
-    Send input to a running tmux session.
-
-    Args:
-        session_name: Name of the tmux session
-        input_text: Text to send to the session
-
-    Returns:
-        Confirmation message
-    """
-    import subprocess
-
-    escaped_input = input_text.replace("'", "'\\''")
-
-    try:
-        subprocess.run(
-            ["tmux", "send-keys", "-t", session_name, escaped_input, "Enter"],
-            capture_output=True,
-            check=True,
-        )
-
-        return [
-            types.TextContent(
-                type="text", text=f"Sent to session {session_name}: {input_text}"
-            )
-        ]
-
-    except subprocess.CalledProcessError as e:
-        return [types.TextContent(type="text", text=f"Error: {e.stderr}")]
-    except FileNotFoundError:
-        return [types.TextContent(type="text", text="Error: tmux not found.")]
-
-
-@server.tool()
-async def tmux_list() -> List[types.TextContent]:
     """
     List all active tmux sessions.
 
     Returns:
         List of active sessions
     """
-    import subprocess
 
-    try:
-        result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
-            capture_output=True,
-            text=True,
-        )
-
-        sessions = result.stdout.strip().split("\n") if result.stdout.strip() else []
-
-        if not sessions or sessions == [""]:
-            return [types.TextContent(type="text", text="No active tmux sessions")]
-
-        lines = ["Active Tmux Sessions:", ""]
-        for session in sessions:
-            if session:
-                lines.append(f"  - {session}")
-
-        lines.append("")
-        lines.append("To attach: tmux attach-session -t <name>")
-
-        return [types.TextContent(type="text", text="\n".join(lines))]
-
-    except subprocess.CalledProcessError:
-        return [types.TextContent(type="text", text="No active tmux sessions")]
-    except FileNotFoundError:
-        return [types.TextContent(type="text", text="Error: tmux not found.")]
+    tmux_command = f"tmux ls"
+    return await execute_command(tmux_command,cwd,ctx,shell)
 
 
+#
 @server.tool()
-async def tmux_kill(session_name: str) -> List[types.TextContent]:
+async def tmux_kill_session(
+    session_name: str,
+    ctx: Context,
+    cwd: str = ".",
+    shell: str = "bash",
+) -> List[types.TextContent]:
     """
     Kill a tmux session.
 
@@ -456,23 +319,11 @@ async def tmux_kill(session_name: str) -> List[types.TextContent]:
     Returns:
         Confirmation message
     """
-    import subprocess
 
-    try:
-        subprocess.run(
-            ["tmux", "kill-session", "-t", session_name],
-            capture_output=True,
-            check=True,
-        )
+    tmux_command = f"tmux kill-session -t {session_name}"
+    return await execute_command(tmux_command,cwd,ctx,shell)
 
-        return [
-            types.TextContent(type="text", text=f"Killed tmux session: {session_name}")
-        ]
 
-    except subprocess.CalledProcessError as e:
-        return [types.TextContent(type="text", text=f"Error: {e.stderr}")]
-    except FileNotFoundError:
-        return [types.TextContent(type="text", text="Error: tmux not found.")]
 
 
 def main():
@@ -485,7 +336,6 @@ def main():
     logging.getLogger("mcp").setLevel(logging.CRITICAL)
     logging.getLogger("fastmcp").setLevel(logging.CRITICAL)
 
-    print(f"Starting MCP server with transport={config.SETTINGS.TRANSPORT}")
 
     if config.SETTINGS.TRANSPORT == "stdio":
         server.run()

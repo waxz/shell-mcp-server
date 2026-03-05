@@ -28,17 +28,26 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     COMMAND_TIMEOUT: int = 30
     ALLOWED_DIRECTORIES: List[str] = []
-    ALLOWED_COMMANDS: Dict[str, Any] = {}
+    TRUSTED_COMMANDS: Dict[str, Any] = {}
     ALLOWED_SHELLS: Dict[str, str] = {}
     SAFETY_MODE: str = "strict"
     TRANSPORT: str = "stdio"
     HOST:str = "0.0.0.0"
     PORT : int = 8000
     PATH : str = "/mpc"
+    PLATFORM:str = ""
+
 
 
     def __init__(self, args: Dict[str, Any], shells: Dict[str, str]):
         super().__init__()
+
+        if sys.platform == "win32":
+            self.PLATFORM = "windows"
+        elif sys.platform == "linux":
+            self.PLATFORM = "linux"
+        elif sys.platform == "darwin":
+            self.PLATFORM = "macos"
         if "directories" in args and args.directories and isinstance(args.directories,list):
             self.ALLOWED_DIRECTORIES = [os.path.abspath(d) for d in args.directories]
         self.ALLOWED_SHELLS = shells
@@ -53,8 +62,8 @@ class Settings(BaseSettings):
 
         if "config" in args and args.config and os.path.exists(args.config):
             CONFIG = toml.load(args.config)
-            if "ALLOWED_COMMANDS" in CONFIG:
-                self.ALLOWED_COMMANDS = CONFIG["ALLOWED_COMMANDS"]
+            if "TRUSTED_COMMANDS" in CONFIG:
+                self.TRUSTED_COMMANDS = CONFIG["TRUSTED_COMMANDS"]
             if "ALLOWED_DIRECTORIES" in CONFIG:
                 self.ALLOWED_DIRECTORIES = CONFIG["ALLOWED_DIRECTORIES"]
             if "ALLOWED_SHELLS" in CONFIG:
