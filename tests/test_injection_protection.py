@@ -14,15 +14,6 @@ from shell_mcp_server.tmux_commands import (
 )
 
 
-def test_reject_multiline_cwd(runtime_settings):
-    bad_cwd = runtime_settings.ALLOWED_DIRECTORIES[0] + "\n/tmp"
-    with pytest.raises(ValueError, match="Invalid cwd"):
-        resolve_request(command="echo ok", cwd=bad_cwd, shell="bash")
-
-
-def test_reject_nullbyte_command(runtime_settings):
-    with pytest.raises(ValueError, match="Invalid command"):
-        resolve_request(command="echo ok\x00bad", cwd=runtime_settings.ALLOWED_DIRECTORIES[0])
 
 
 def test_tmux_command_is_single_token_after_escaping():

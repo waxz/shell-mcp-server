@@ -27,25 +27,9 @@ def build_posix_shell_command(
     )
     if cwd in ["", "."]:
         wrapped_command = command
-        logger.debug(
-            "1build_posix_shell_command trusted=%s work_dir=%s host_root=%s cwd=%s command=%s",
-            trusted,
-            work_dir,
-            host_root,
-            cwd,
-            command,
-        )
     else:
-        new_cwd = shlex.quote(cwd);
+        new_cwd = shlex.quote(cwd)
         wrapped_command = f" if [ -d {new_cwd} ]; then cd {new_cwd}; {command}; else echo 'Directory {new_cwd} does not exist'; fi "
-        logger.debug(
-            "2build_posix_shell_command trusted=%s work_dir=%s host_root=%s new_cwd=%s wrapped_command=%s",
-            trusted,
-            work_dir,
-            host_root,
-            new_cwd,
-            wrapped_command,
-        )
     logger.debug("wrapped_command: %s", wrapped_command)
     logger.debug(
         "build_posix_shell_command trusted=%s work_dir=%s host_root=%s",
@@ -56,6 +40,17 @@ def build_posix_shell_command(
     if not trusted:
         encoded_command = base64.b64encode(wrapped_command.encode("utf-8")).decode("ascii")
         safe_runner = f"echo {encoded_command} | base64 -d | bash"
-        return [shell_path, "-c", f"source ~/.bashrc  > /dev/null 2>&1  && export DOCKER_SANDBOX_HOST_ROOT_OVERRIDE={host_root} && export DOCKER_SANDBOX_WORKDIR_OVERRIDE={work_dir} && drun '{safe_runner}'"]
+        quoted_host_root = shlex.quote(host_root or "")
+        quoted_work_dir = shlex.quote(work_dir or "")
+        return [
+            shell_path,
+            "-c",
+            (
+                "source ~/.bashrc > /dev/null 2>&1 && "
+                f"export DOCKER_SANDBOX_HOST_ROOT_OVERRIDE={quoted_host_root} && "
+                f"export DOCKER_SANDBOX_WORKDIR_OVERRIDE={quoted_work_dir} && "
+                f"drun '{safe_runner}'"
+            ),
+        ]
 
     return [shell_path, "-c", wrapped_command]

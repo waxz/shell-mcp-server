@@ -301,7 +301,7 @@ async def run_shell_command(
         await cancel.wait()
         await _terminate_process(process)
 
-    killer_task = asyncio.create_task(_auto_kill())
+    kill_task = asyncio.create_task(_auto_kill())
 
     try:
         await asyncio.wait_for(

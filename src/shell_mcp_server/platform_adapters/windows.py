@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from pathlib import PurePosixPath
-from pathlib import PureWindowsPath
+from pathlib import PurePosixPath, PureWindowsPath
 
 
 def _ps_single_quoted(value: str) -> str:
@@ -24,7 +23,18 @@ def _map_host_cwd_to_sandbox(
     """Map a Windows host cwd into the Linux sandbox path space."""
     if not work_dir:
         return cwd or "."
-    return str(PurePosixPath(work_dir))
+    if not cwd:
+        return str(PurePosixPath(work_dir))
+
+    cwd_win = PureWindowsPath(cwd)
+    host_root_win = PureWindowsPath(host_root) if host_root else None
+    work_dir_posix = PurePosixPath(work_dir)
+
+    if host_root_win and cwd_win.is_absolute() and host_root_win in (cwd_win, *cwd_win.parents):
+        rel = cwd_win.relative_to(host_root_win)
+        return str(PurePosixPath(work_dir_posix, *rel.parts))
+
+    return str(work_dir_posix)
 
 
 def build_windows_shell_command(
@@ -52,21 +62,32 @@ def build_windows_shell_command(
     if shell == "cmd":
         return [shell_path, "/c", command]
 
-    cwd = _ps_single_quoted(cwd)
+    sandbox_cwd = cwd
     if shell == "bash" and not trusted:
-        if cwd in {"", "."}:
+        sandbox_cwd = _map_host_cwd_to_sandbox(
+            cwd=cwd,
+            host_root=host_root,
+            work_dir=work_dir,
+        )
+
+    quoted_cwd = _ps_single_quoted(sandbox_cwd)
+    if shell == "bash" and not trusted:
+        if quoted_cwd in {"", "."}:
             wrapped_command = command
         else:
-            wrapped_command = f"if [ -d '{cwd}' ]; then cd '{cwd}'; {command}; else echo 'Directory {cwd} does not exist'; fi "
+            wrapped_command = (
+                f"if [ -d '{quoted_cwd}' ]; then cd '{quoted_cwd}'; {command}; "
+                f"else echo 'Directory {quoted_cwd} does not exist'; fi "
+            )
         logger.debug("Wrapped command: %s", wrapped_command)
         encoded_command = base64.b64encode(wrapped_command.encode("utf-8")).decode("ascii")
         safe_runner = f"echo {encoded_command} | base64 -d | bash"
-        host_root = _ps_single_quoted(host_root or cwd)
-        work_dir = _ps_single_quoted(work_dir or cwd)
+        quoted_host_root = _ps_single_quoted(host_root or cwd)
+        quoted_work_dir = _ps_single_quoted(work_dir or sandbox_cwd)
 
         final_command = f"""
-                $ENV:DOCKER_SANDBOX_HOST_ROOT_OVERRIDE="{host_root}";
-                $ENV:DOCKER_SANDBOX_WORKDIR_OVERRIDE="{work_dir}";
+                $ENV:DOCKER_SANDBOX_HOST_ROOT_OVERRIDE="{quoted_host_root}";
+                $ENV:DOCKER_SANDBOX_WORKDIR_OVERRIDE="{quoted_work_dir}";
                 drun "{safe_runner}"
                 """ 
         logger.debug("Final command: %s", final_command)

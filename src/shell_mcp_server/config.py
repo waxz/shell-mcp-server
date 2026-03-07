@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import platform
 from argparse import Namespace
 from pathlib import Path
-from typing import Any,Dict
+from typing import Any, Dict
 
 import toml
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -23,12 +22,6 @@ def _default_shells(system_name: str) -> dict[str, str]:
             "wsl": "wsl.exe",
         }
     return {"bash": "/bin/bash", "sh": "/bin/sh"}
-
-
-def _is_wsl() -> bool:
-    release = platform.release().lower()
-    version = platform.version().lower()
-    return "microsoft" in release or "microsoft" in version
 
 
 logger = logging.getLogger(__name__)
@@ -49,14 +42,12 @@ class Settings(BaseSettings):
     PATH: str = "/mcp"
     PLATFORM: str = "linux"
 
+    ALLOWED_DIRECTORIES_HOST: list[str] = Field(default_factory=list)
+    ALLOWED_DIRECTORIES_DOCKER: list[str] = Field(default_factory=list)
 
-    ALLOWED_DIRECTORIES_HOST: list[str]| None = None
-    ALLOWED_DIRECTORIES_DOCKER: list[str] | None = None
-
-
-    DOCKER_CONFIG:Dict[str, Any] = {}
+    DOCKER_CONFIG: Dict[str, Any] = {}
     DOCKER_SHELL_COMPOSE_FILE: str | None = None
-    DOCKER_SHELL_SERVICE: str | None =None
+    DOCKER_SHELL_SERVICE: str | None = None
     DOCKER_SHELL_ENV_FILE: str | None = None
     DOCKER_SANDBOX_WORKDIR: str | None = None
     DOCKER_SANDBOX_HOST_ROOT: str | None = None
@@ -92,12 +83,16 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_DIRECTORIES_DOCKER")
     @classmethod
-    def _normalize_allowed_dirs_docker(cls, value: list[str]) -> list[str]:
+    def _normalize_allowed_dirs_docker(cls, value: list[str] | None) -> list[str]:
+        if not value:
+            return []
         return [path for path in value]
 
     @field_validator("ALLOWED_DIRECTORIES_HOST")
     @classmethod
-    def _normalize_allowed_dirs_host(cls, value: list[str]) -> list[str]:
+    def _normalize_allowed_dirs_host(cls, value: list[str] | None) -> list[str]:
+        if not value:
+            return []
         return [path for path in value]
 
     @field_validator("DOCKER_SHELL_COMPOSE_FILE")
@@ -116,7 +111,6 @@ class Settings(BaseSettings):
     def _normalize_docker_shell_service(cls, value: str | None) -> str | None:
         return value
 
-
     @field_validator("DOCKER_SANDBOX_HOST_ROOT")
     @classmethod
     def _normalize_docker_sandbox_host_root(cls, value: str | None) -> str | None:
@@ -127,7 +121,6 @@ class Settings(BaseSettings):
         if not path.is_dir():
             raise ValueError(f"Host root directory does not exist: {path}")
         return str(path)
-    
     @field_validator("DOCKER_SANDBOX_WORKDIR")
     @classmethod
     def _normalize_docker_sandbox_workdir(cls, value: str | None) -> str | None:
@@ -168,7 +161,7 @@ class Settings(BaseSettings):
             "PLATFORM": platform_name,
             "ALLOWED_SHELLS": _default_shells(platform_name),
             "DOCKER_CONFIG": {},
-            "DOCKER_SHELL_COMPOSE_FILE" : None,
+            "DOCKER_SHELL_COMPOSE_FILE": None,
         }
 
         config_path = Path(getattr(args, "config", "config.toml") or "config.toml")
@@ -181,7 +174,6 @@ class Settings(BaseSettings):
         elif not merged.get("ALLOWED_SHELLS"):
             merged["ALLOWED_SHELLS"] = parsed_shells
 
-
         if getattr(args, "transport", None):
             merged["TRANSPORT"] = args.transport
         if getattr(args, "host", None):
@@ -190,21 +182,30 @@ class Settings(BaseSettings):
             merged["PORT"] = args.port
         if args.path:
             merged["PATH"] = args.path
-        
-        logger.debug("merged %s", merged)
-        logger.debug("args %s", args)
+        if getattr(args, "directories", None):
+            merged["ALLOWED_DIRECTORIES_HOST"] = list(args.directories)
 
-
-
-        merged["DOCKER_SHELL_COMPOSE_FILE"] = merged.get("DOCKER_CONFIG", {}).get("config_file")
+        merged["DOCKER_SHELL_COMPOSE_FILE"] = merged.get("DOCKER_CONFIG", {}).get(
+            "config_file"
+        )
         merged["DOCKER_SHELL_SERVICE"] = merged.get("DOCKER_CONFIG", {}).get("service")
         merged["DOCKER_SHELL_ENV_FILE"] = merged.get("DOCKER_CONFIG", {}).get("env_file")
 
         config_os = merged["DOCKER_CONFIG"].get(platform_name, {})
         merged["DOCKER_SANDBOX_HOST_ROOT"] = config_os.get("host_root")
         merged["DOCKER_SANDBOX_WORKDIR"] = config_os.get("work_dir")
-        merged["ALLOWED_DIRECTORIES_HOST"] = config_os.get("allow_direcotories_host")
-        merged["ALLOWED_DIRECTORIES_DOCKER"] = config_os.get("allow_direcotories_docker")
+        if "ALLOWED_DIRECTORIES_HOST" not in merged:
+            host_dirs = config_os.get(
+                "allow_direcotories_host",
+                config_os.get("allow_directories_host"),
+            )
+            merged["ALLOWED_DIRECTORIES_HOST"] = host_dirs or []
+        if "ALLOWED_DIRECTORIES_DOCKER" not in merged:
+            docker_dirs = config_os.get(
+                "allow_direcotories_docker",
+                config_os.get("allow_directories_docker"),
+            )
+            merged["ALLOWED_DIRECTORIES_DOCKER"] = docker_dirs or []
 
         host_root = merged["DOCKER_SANDBOX_HOST_ROOT"]
         work_dir = merged["DOCKER_SANDBOX_WORKDIR"]
@@ -220,9 +221,8 @@ class Settings(BaseSettings):
             merged["ALLOWED_DIRECTORIES_DOCKER"] = merged.get("ALLOWED_DIRECTORIES_DOCKER", []) + [
                 work_dir
             ]
-        logger.debug("final merged %s", merged)
-        
         settings = cls(**merged)
+        cls._validate_trusted_commands_against_shells(settings)
         return settings
 
     @staticmethod

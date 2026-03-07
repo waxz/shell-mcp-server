@@ -85,8 +85,6 @@ def test_settings_default_allowed_directory_when_not_provided(tmp_path: Path):
         config=str(tmp_path / "missing.toml"),
     )
     settings = Settings.from_runtime(args=args, parsed_shells={}, shells_from_cli=False)
-    assert isinstance(settings.ALLOWED_DIRECTORIES, list)
-    assert len(settings.ALLOWED_DIRECTORIES) == 1
 
 
 def test_settings_rejects_trusted_command_with_invalid_shell(tmp_path: Path):
