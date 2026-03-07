@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from anyio import ClosedResourceError
 from fastmcp import FastMCP
+from mcp.server.session import ServerSession
 
 from . import config
 from .tool_handlers import register_tools
@@ -47,6 +49,17 @@ def build_server() -> FastMCP:
     args, shells, shells_from_cli = parse_args()
     config.SETTINGS = config.Settings.from_runtime(args, shells, shells_from_cli)
 
+    # Patch ServerSession to swallow ClosedResourceError when sending response after client disconnects
+    _original_send_response = ServerSession._send_response
+
+    async def _patched_send_response(self, request_id, response):
+        try:
+            await _original_send_response(self, request_id, response)
+        except ClosedResourceError:
+            logging.info("ClosedResourceError suppressed while sending response")
+
+    ServerSession._send_response = _patched_send_response
+
     app = FastMCP(config.SETTINGS.APP_NAME)
     register_tools(app)
     return app
@@ -54,18 +67,21 @@ def build_server() -> FastMCP:
 
 def main() -> None:
     """Main entry point for running server with selected transport."""
-    logging.getLogger("mcp.server.streamable_http_manager").setLevel(logging.INFO)
-    logging.getLogger("mcp").setLevel(logging.INFO)
-    logging.getLogger("fastmcp").setLevel(logging.INFO)
-    logging.info("Starting server...")
-    app = build_server()
-    print(f"Settings: {config.SETTINGS}")    
-
-    assert config.SETTINGS is not None
 
     # Suppress ClosedResourceError that happens when clients disconnect
     logging.getLogger("fastmcp").setLevel(logging.INFO)
     logging.getLogger("anyio").setLevel(logging.INFO)
+
+    logging.getLogger("mcp.server.streamable_http_manager").setLevel(logging.INFO)
+    logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.INFO)
+    logging.getLogger("mcp.server.streamable_http").setLevel(logging.INFO)
+    
+    logging.getLogger("mcp").setLevel(logging.INFO)
+    logging.info("Starting server...")
+    app = build_server()
+
+    assert config.SETTINGS is not None
+
 
     # Custom exception handler to suppress client disconnect errors
     old_excepthook = sys.excepthook
@@ -73,10 +89,7 @@ def main() -> None:
     def new_excepthook(exc_type, exc_value, exc_traceback):
         # Suppress ClosedResourceError from crashing the server
         if exc_type.__name__ == "ClosedResourceError":
-            print(
-                f"INFO: Client disconnected (ClosedResourceError suppressed)",
-                file=sys.stderr,
-            )
+            logging.info("Client disconnected (ClosedResourceError suppressed)")
             return
         # Also suppress ExceptionGroup containing ClosedResourceError
         if exc_type.__name__ == "BaseExceptionGroup":
@@ -84,10 +97,7 @@ def main() -> None:
                 # Check if it's just ClosedResourceError
                 for cause in exc_value.exceptions or []:
                     if "ClosedResourceError" in str(type(cause).__name__):
-                        print(
-                            f"INFO: Client disconnected (ExceptionGroup suppressed)",
-                            file=sys.stderr,
-                        )
+                        logging.info("Client disconnected (ExceptionGroup suppressed)")
                         return
         old_excepthook(exc_type, exc_value, exc_traceback)
 

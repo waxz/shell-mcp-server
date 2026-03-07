@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import PurePosixPath
 from pathlib import PureWindowsPath
 
@@ -10,6 +11,9 @@ from pathlib import PureWindowsPath
 def _ps_single_quoted(value: str) -> str:
     """Escape a string for PowerShell single-quoted literal context."""
     return value.replace("'", "''")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _map_host_cwd_to_sandbox(
@@ -33,32 +37,46 @@ def build_windows_shell_command(
     host_root: str | None = None,
 ) -> list[str]:
     """Build a Windows shell invocation argument list."""
+
+    logger.debug(
+        "build_windows_shell_command shell=%s trusted=%s work_dir=%s host_root=%s cwd=%s",
+        shell,
+        trusted,
+        work_dir,
+        host_root,
+        cwd,
+    )
     if shell == "wsl":
         return [shell_path, "--cd", cwd, "bash", "-c", command]
 
     if shell == "cmd":
         return [shell_path, "/c", command]
 
+    cwd = _ps_single_quoted(cwd)
     if shell == "bash" and not trusted:
-        sandbox_cwd = _map_host_cwd_to_sandbox(cwd=cwd, host_root=host_root, work_dir=work_dir)
         if cwd in {"", "."}:
             wrapped_command = command
         else:
-            wrapped_command = f"cd '{_ps_single_quoted(sandbox_cwd)}' && {command}"
+            wrapped_command = f"if [ -d '{cwd}' ]; then cd '{cwd}'; {command}; else echo 'Directory {cwd} does not exist'; fi "
+        logger.debug("Wrapped command: %s", wrapped_command)
         encoded_command = base64.b64encode(wrapped_command.encode("utf-8")).decode("ascii")
         safe_runner = f"echo {encoded_command} | base64 -d | bash"
         host_root = _ps_single_quoted(host_root or cwd)
         work_dir = _ps_single_quoted(work_dir or cwd)
+
+        final_command = f"""
+                $ENV:DOCKER_SANDBOX_HOST_ROOT_OVERRIDE="{host_root}";
+                $ENV:DOCKER_SANDBOX_WORKDIR_OVERRIDE="{work_dir}";
+                drun "{safe_runner}"
+                """ 
+        logger.debug("Final command: %s", final_command)
+
         return [
             "powershell.exe",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            f"""
-                $ENV:DOCKER_SANDBOX_HOST_ROOT_OVERRIDE="{host_root}";
-                $ENV:DOCKER_SANDBOX_WORKDIR_OVERRIDE="{work_dir}";
-                drun "{safe_runner}"
-                """
+            final_command,
         ]
 
     return [shell_path, "-ExecutionPolicy", "Bypass", "-Command", command]

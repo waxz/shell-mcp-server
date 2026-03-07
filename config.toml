@@ -2,7 +2,7 @@
 # ALLOWED_BASH= ["/bin/bash","/bin/sh"]
 # ALLOWED_POWERSHELL= ["powershell.exe","pwsh.exe"]
 # ALLOWED_CMD= ["cmd.exe"]
-ALLOWED_DIRECTORIES = ['.']
+# ALLOWED_DIRECTORIES = ['.']
 
 SAFETY_MODE = "strict"
 # SAFETY_MODE = "relax"
@@ -14,15 +14,15 @@ service = "drun1"
 [DOCKER_CONFIG.windows]
 work_dir = "/app/dev/repo2"
 host_root = "C:/Users/axdev/dev/repo"
-host_allow_direcotories = ["."]
-docker_allow_direcotories = ["."]
+allow_direcotories_host = ["."]
+allow_direcotories_docker = [".", "/tmp"]
 
 
 [DOCKER_CONFIG.linux]
-work_dir = "/mnt/c/Users/axdev/dev/repo"
+work_dir = "/mnt/c/Users/axdev/dev/repo2"
 host_root = "/mnt/c/Users/axdev/dev/repo"
-host_allow_direcotories = ["."]
-docker_allow_direcotories = ["."]
+allow_direcotories_host = ["."]
+allow_direcotories_docker = [".", "/tmp"]
 
 
 [TRUSTED_COMMANDS]

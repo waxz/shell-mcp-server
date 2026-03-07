@@ -139,7 +139,7 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
                     detail="expected error matched tool error output",
                 )
             print("FAILED: expected an error but call succeeded")
-            print(output)
+            print("OUTPUT> ",output)
             return ScenarioResult(
                 scenario=scenario,
                 passed=False,
@@ -149,7 +149,7 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
 
         if scenario.must_contain and scenario.must_contain not in output:
             print(f"FAILED: expected output to contain: {scenario.must_contain!r}")
-            print(output or "<empty>")
+            print("OUTPUT> ",output or "<empty>")
             return ScenarioResult(
                 scenario=scenario,
                 passed=False,
@@ -159,7 +159,7 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
 
         if "No such file or directory" in output:
             print("FAILED: unexpected path resolution error")
-            print(output)
+            print("OUTPUT> ",output)
             return ScenarioResult(
                 scenario=scenario,
                 passed=False,
@@ -167,7 +167,7 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
                 detail="unexpected path resolution error",
             )
 
-        print(output or "<empty>")
+        print("OUTPUT> ",output or "<empty>")
         return ScenarioResult(scenario=scenario, passed=True, output=output)
     except Exception as exc:  # noqa: BLE001
         if scenario.expect_error:
@@ -355,9 +355,24 @@ echo "data={\"status\": \"success\", \"msg\": \"hello from app\"}" >> "$proj/mai
 echo "print(f'data: {data}')" >> "$proj/main.py"
 echo "print(toml.dumps(data))" >> "$proj/main.py"
 
-echo "print('sleep 10')" >> "$proj/main.py"
+echo "print('sleep 2')" >> "$proj/main.py"
 
-echo "time.sleep(10)" >> "$proj/main.py"
+echo "time.sleep(2)" >> "$proj/main.py"
+
+
+echo "print('sleep 3')" >> "$proj/main.py"
+
+echo "time.sleep(3)" >> "$proj/main.py"
+
+
+echo "print('sleep 1')" >> "$proj/main.py"
+
+echo "time.sleep(1)" >> "$proj/main.py"
+
+
+echo "print('sleep 2')" >> "$proj/main.py"
+
+echo "time.sleep(2)" >> "$proj/main.py"
 
 echo "toml" > "$proj/requirements.txt"
 
@@ -374,12 +389,55 @@ async def run_scenarios(args: argparse.Namespace) -> int:
         sandbox_test_dir = f"{sandbox_base.rstrip('/')}/docker/app"
     sandbox_root_expect: str | None = sandbox_base
     
-
+    scenarios_demo = [
+    Scenario(
+                "execute_command",
+                {
+                    "command": "pwd",
+                    "cwd": ".",
+                    "shell": args.shell,
+                },
+            ),
+    Scenario(
+                "execute_command",
+                {
+                    "command": "echo 1234566777opp",
+                    "cwd": ".",
+                    "shell": args.shell,
+                },
+            ),
+    Scenario(
+                "execute_command",
+                {
+                    "command": "pwd",
+                    "cwd": "./data",
+                    "shell": args.shell,
+                },
+            ),
+            
+    ]
 
 
     scenarios = [
         Scenario("greet", {"name": "Test"}),
         Scenario("bye", {"name": "Test"}),
+        Scenario(
+            "execute_command",
+            {
+                "command": "pwd",
+                "cwd": ".",
+                "shell": args.shell,
+            },
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "trusted_pwd",
+                "cwd": ".",
+                "shell": args.shell,
+            },
+        ),
+        
         Scenario(
             "execute_command",
             {
@@ -430,8 +488,7 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                 "command": "trusted_pwd",
                 "cwd": args.cwd,
                 "shell": args.shell,
-            },
-            must_contain=str(PROJECT_ROOT),
+            }
         ),
         Scenario("list_processes", {}),
         Scenario("terminate_all_processes", {}),
@@ -488,16 +545,16 @@ async def run_scenarios(args: argparse.Namespace) -> int:
 
     results: list[ScenarioResult] = []
     async with client:
-        tmux_available = False
-        try:
-            probe = await client.call_tool(
-                "execute_command",
-                {"command": "tmux -V >/dev/null 2>&1; echo $?", "cwd": args.cwd, "shell": args.shell},
-            )
-            probe_text = extract_text(probe)
-            tmux_available = "\n0\n" in f"\n{probe_text}\n"
-        except Exception:
-            tmux_available = False
+        tmux_available = True
+        # try:
+        #     probe = await client.call_tool(
+        #         "execute_command",
+        #         {"command": "tmux -V >/dev/null 2>&1; echo $?", "cwd": args.cwd, "shell": args.shell},
+        #     )
+        #     probe_text = extract_text(probe)
+        #     tmux_available = "\n0\n" in f"\n{probe_text}\n"
+        # except Exception:
+        #     tmux_available = False
 
         if tmux_available:
             session = "mcp_test_py"

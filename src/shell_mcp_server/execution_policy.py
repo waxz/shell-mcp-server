@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import platform
 from pathlib import Path
@@ -10,6 +11,8 @@ from pathlib import PureWindowsPath
 
 from . import config
 from .models import ExecutionRequest
+
+logger = logging.getLogger(__name__)
 
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
@@ -40,84 +43,119 @@ def _is_windows_style_path(path_text: str) -> bool:
     return "\\" in path_text or bool(PureWindowsPath(path_text).drive)
 
 
-def _can_map_windows_drive_to_mnt() -> bool:
-    return platform.system().lower() != "windows" and Path("/mnt").exists()
+def _coerce_platform_path(path_text: str, settings: config.Settings,is_trusted:bool) -> str:
+    logger.debug(
+        "run _coerce_platform_path, is_trusted:%s path_text:%s",
+        is_trusted,
+        path_text,
+    )
+    if not is_trusted:
+        if  _is_windows_style_path(path_text):
+            raise ValueError(f"Invalid path {path_text} in is_trusted:{is_trusted} env")
+        else:
+            path = PurePosixPath(path_text)
+            if path.is_absolute():
+                resolved = PurePosixPath(path_text)
+                logger.debug("1 _coerce_platform_path %s", resolved)
+                return str(resolved)
+            else:
+                host_dir = PurePosixPath(settings.DOCKER_SANDBOX_WORKDIR)
+                resolved = PurePosixPath(host_dir, path)
+                logger.debug("host_dir:%s", host_dir)
+                logger.debug("path:%s", path)
+                logger.debug("2 _coerce_platform_path %s", resolved)
+
+                return str(resolved)
+
+    else:
+        if settings.PLATFORM == "windows":
+            windows_path = PureWindowsPath(path_text)
+            if windows_path.is_absolute():
+                resolved = Path(str(windows_path))
+                logger.debug("3 _coerce_platform_path %s", resolved)
+
+                return str(resolved)
+            else:
+                resolved = Path(settings.DOCKER_SANDBOX_HOST_ROOT, *windows_path.parts[1:])
+                logger.debug("4 _coerce_platform_path %s", resolved)
+
+                return str(resolved)
+        else:
+            path = Path(path_text)
+            if path.is_absolute():
+                resolved = Path(path_text)
+                logger.debug("5 _coerce_platform_path %s", resolved)
+                return str(resolved)
+
+            else:
+                host_dir = Path(settings.DOCKER_SANDBOX_HOST_ROOT)
+                resolved = Path(host_dir, path)
+                logger.debug("6 _coerce_platform_path %s", resolved)
+
+                return str(resolved)
 
 
-def _coerce_platform_path(path_text: str, settings: config.Settings) -> Path:
-    if settings.PLATFORM != "windows" or not _is_windows_style_path(path_text):
-        return Path(path_text)
 
-    windows_path = PureWindowsPath(path_text)
-    if windows_path.is_absolute():
-        drive = windows_path.drive.rstrip(":").lower()
-        if _can_map_windows_drive_to_mnt() and drive and len(drive) == 1 and drive.isalpha():
-            mapped = Path("/mnt", drive, *windows_path.parts[1:])
-            return mapped
-        return Path(str(windows_path))
+def _is_absolute_for_platform(path_text: str, settings: config.Settings,is_trusted:bool) -> bool:
+    if not is_trusted:
+        if  _is_windows_style_path(path_text):
+            raise ValueError(f"_is_absolute_for_platform Invalid path {path_text} in is_trusted:{is_trusted} env")
+        else:
+            return Path(path_text).is_absolute()
+    else:
+        if settings.PLATFORM == "windows":
+            return PureWindowsPath(path_text).is_absolute()
+        else:
+            return Path(path_text).is_absolute()
 
-    if platform.system().lower() == "windows":
-        return Path(str(windows_path))
-    return Path(*windows_path.parts)
+def _allowed_directories(settings: config.Settings, is_trusted: bool) -> list[str]:
+    logger.debug("run _allowed_directories is_trusted:%s", is_trusted)
+    logger.debug(
+        "run _allowed_directories settings.ALLOWED_DIRECTORIES_HOST:%s",
+        settings.ALLOWED_DIRECTORIES_HOST,
+    )
+    logger.debug(
+        "run _allowed_directories settings.ALLOWED_DIRECTORIES_DOCKER:%s",
+        settings.ALLOWED_DIRECTORIES_DOCKER,
+    )
+    if is_trusted:
+        return settings.ALLOWED_DIRECTORIES_HOST
+    return settings.ALLOWED_DIRECTORIES_DOCKER
 
 
-def _is_absolute_for_platform(path_text: str, settings: config.Settings) -> bool:
-    if settings.PLATFORM == "windows":
-        return PureWindowsPath(path_text).is_absolute()
-    return Path(path_text).is_absolute()
-
-
-def _is_allowed_path(path: Path, settings: config.Settings) -> bool:
-    resolved = path.resolve()
-    for allowed in settings.ALLOWED_DIRECTORIES:
-        allowed_path = _coerce_platform_path(allowed, settings).resolve()
-        if resolved == allowed_path or allowed_path in resolved.parents:
-            return True
+def _is_allowed_path(path: str, settings: config.Settings, is_trusted: bool) -> bool:
+    if not is_trusted:
+        resolved = PurePosixPath(path)
+        for allowed in _allowed_directories(settings, is_trusted):
+            logger.debug("run _is_allowed_path allowed:%s", allowed)
+            allowed_path = _coerce_platform_path(allowed, settings, is_trusted)
+            allowed_path = PurePosixPath(allowed_path)
+            logger.debug("run _is_allowed_path allowed_path:%s", allowed_path)
+            if resolved == allowed_path or allowed_path in resolved.parents:
+                return True
+    else:
+        resolved = Path(path).resolve()
+        for allowed in _allowed_directories(settings, is_trusted):
+            logger.debug("run _is_allowed_path allowed:%s", allowed)
+            allowed_path = _coerce_platform_path(allowed, settings, is_trusted)
+            allowed_path = Path(allowed_path).resolve()
+            logger.debug("run _is_allowed_path allowed_path:%s", allowed_path)
+            if resolved == allowed_path or allowed_path in resolved.parents:
+                return True
     return False
 
 
-def _resolve_absolute_cwd(cwd: str, settings: config.Settings) -> str:
-    if _is_absolute_for_platform(cwd, settings):
-        resolved = _coerce_platform_path(cwd, settings).resolve()
-    else:
-        base = _coerce_platform_path(settings.ALLOWED_DIRECTORIES[0], settings).resolve()
-        relative = _coerce_platform_path(cwd, settings)
-        resolved = (base / relative).resolve()
+def _resolve_absolute_cwd(cwd: str, settings: config.Settings,is_trusted:bool) -> str:
+    logger.debug("run _resolve_absolute_cwd _coerce_platform_path cwd:%s", cwd)
+    logger.debug("run _resolve_absolute_cwd _coerce_platform_path settings:%s", settings)
+    logger.debug("run _resolve_absolute_cwd _coerce_platform_path is_trusted:%s", is_trusted)
+    resolved = _coerce_platform_path(cwd, settings,is_trusted)
+    logger.debug("run _resolve_absolute_cwd _coerce_platform_path resolved:%s", resolved)
 
-    if not _is_allowed_path(resolved, settings):
+    if not _is_allowed_path(resolved, settings,is_trusted):
         raise ValueError("Directory not allowed")
-    if not resolved.exists() or not resolved.is_dir():
-        raise ValueError("Directory does not exist")
     return str(resolved)
 
-
-def _resolve_sandbox_cwd(host_cwd: str, settings: config.Settings) -> str:
-    sandbox_root = PurePosixPath(settings.DOCKER_SANDBOX_WORKDIR)
-    host_root = _coerce_platform_path(settings.DOCKER_SANDBOX_HOST_ROOT, settings).resolve()
-    host_path = _coerce_platform_path(host_cwd, settings).resolve()
-
-    try:
-        relative = host_path.relative_to(host_root)
-    except ValueError:
-        if getattr(settings, "DOCKER_SANDBOX_ENFORCE_CWD_MAP", False):
-            raise ValueError("Directory cannot be mapped into sandbox") from None
-        if settings.PLATFORM == "windows":
-            return "."
-        return str(sandbox_root)
-
-    if settings.PLATFORM == "windows":
-        relative_text = relative.as_posix().lstrip("/")
-        if not relative_text:
-            return "."
-        # Windows drun often mounts project/docker/app to /app.
-        if relative_text == "docker/app":
-            return "."
-        if relative_text.startswith("docker/app/"):
-            return relative_text[len("docker/app/") :]
-        return relative_text
-
-    relative_posix = PurePosixPath(relative.as_posix())
-    return str(sandbox_root / relative_posix)
 
 
 def resolve_request(command: str, cwd: str, shell: str = "bash") -> ExecutionRequest:
@@ -125,6 +163,10 @@ def resolve_request(command: str, cwd: str, shell: str = "bash") -> ExecutionReq
     settings = config.SETTINGS
     if settings is None:
         raise RuntimeError("Server settings are not initialized")
+
+    logger.debug("run resolve_request command:%s", command)
+    logger.debug("run resolve_request cwd:%s", cwd)
+    logger.debug("run resolve_request shell:%s", shell)
 
     _validate_string_input(command, "command")
     _validate_string_cwd(cwd, "cwd")
@@ -152,11 +194,20 @@ def resolve_request(command: str, cwd: str, shell: str = "bash") -> ExecutionReq
         raise ValueError(
             f"Shell '{resolved_shell}' is not allowed. Available: {available_shells}"
         )
+    logger.debug(
+        "try _resolve_absolute_cwd:%s settings:%s is_trusted:%s",
+        resolved_cwd,
+        settings,
+        is_trusted,
+    )
 
     absolute_cwd = _resolve_absolute_cwd(
         cwd=resolved_cwd,
         settings=settings,
+        is_trusted=is_trusted
     )
+
+    logger.debug("absolute_cwd:%s", absolute_cwd)
 
     return ExecutionRequest(
         command=resolved_command,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 from argparse import Namespace
@@ -30,13 +31,15 @@ def _is_wsl() -> bool:
     return "microsoft" in release or "microsoft" in version
 
 
+logger = logging.getLogger(__name__)
+
+
 class Settings(BaseSettings):
     """Application runtime settings."""
 
     APP_NAME: str = "shell-mcp-server"
     APP_VERSION: str = "0.1.3"
     COMMAND_TIMEOUT: int = 30
-    ALLOWED_DIRECTORIES: list[str] = []
     TRUSTED_COMMANDS: dict[str, dict[str, str]] = {}
     ALLOWED_SHELLS: dict[str, str] = {}
     SAFETY_MODE: str = "strict"
@@ -45,6 +48,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     PATH: str = "/mcp"
     PLATFORM: str = "linux"
+
 
     ALLOWED_DIRECTORIES_HOST: list[str]| None = None
     ALLOWED_DIRECTORIES_DOCKER: list[str] | None = None
@@ -86,10 +90,15 @@ class Settings(BaseSettings):
             raise ValueError("TRANSPORT must be 'stdio' or 'http'")
         return value
 
-    @field_validator("ALLOWED_DIRECTORIES")
+    @field_validator("ALLOWED_DIRECTORIES_DOCKER")
     @classmethod
-    def _normalize_allowed_dirs(cls, value: list[str]) -> list[str]:
-        return [str(Path(path).resolve()) for path in value]
+    def _normalize_allowed_dirs_docker(cls, value: list[str]) -> list[str]:
+        return [path for path in value]
+
+    @field_validator("ALLOWED_DIRECTORIES_HOST")
+    @classmethod
+    def _normalize_allowed_dirs_host(cls, value: list[str]) -> list[str]:
+        return [path for path in value]
 
     @field_validator("DOCKER_SHELL_COMPOSE_FILE")
     @classmethod
@@ -172,10 +181,6 @@ class Settings(BaseSettings):
         elif not merged.get("ALLOWED_SHELLS"):
             merged["ALLOWED_SHELLS"] = parsed_shells
 
-        if getattr(args, "directories", None):
-            merged["ALLOWED_DIRECTORIES"] = [
-                str(Path(path).resolve()) for path in args.directories
-            ]
 
         if getattr(args, "transport", None):
             merged["TRANSPORT"] = args.transport
@@ -186,31 +191,36 @@ class Settings(BaseSettings):
         if args.path:
             merged["PATH"] = args.path
         
-        print("merged", merged)
-        print("args", args)
+        logger.debug("merged %s", merged)
+        logger.debug("args %s", args)
 
 
-        if not merged.get("ALLOWED_DIRECTORIES"):
-            merged["ALLOWED_DIRECTORIES"] = [str(Path(".").resolve())]
 
         merged["DOCKER_SHELL_COMPOSE_FILE"] = merged.get("DOCKER_CONFIG", {}).get("config_file")
         merged["DOCKER_SHELL_SERVICE"] = merged.get("DOCKER_CONFIG", {}).get("service")
         merged["DOCKER_SHELL_ENV_FILE"] = merged.get("DOCKER_CONFIG", {}).get("env_file")
 
-        if platform_name == "linux":
-            merged["DOCKER_SANDBOX_HOST_ROOT"] = merged["DOCKER_CONFIG"].get("linux",{}).get("host_root", None)
-            merged["DOCKER_SANDBOX_WORKDIR"] =  merged["DOCKER_CONFIG"].get("linux",{}).get("work_dir", None)
-            merged["ALLOWED_DIRECTORIES_HOST"] =  merged["DOCKER_CONFIG"].get("linux",{}).get("allow_direcotories_host", None)
-            merged["ALLOWED_DIRECTORIES_DOCKER"] =  merged["DOCKER_CONFIG"].get("linux",{}).get("allow_direcotories_docker", None)
-            
-            
-        elif platform_name == "windows":
-            merged["DOCKER_SANDBOX_HOST_ROOT"] = merged["DOCKER_CONFIG"].get("windows",{}).get("host_root", None)
-            merged["DOCKER_SANDBOX_WORKDIR"] = merged["DOCKER_CONFIG"].get("windows",{}).get("work_dir", None)
-            merged["ALLOWED_DIRECTORIES_HOST"] =  merged["DOCKER_CONFIG"].get("windows",{}).get("allow_direcotories_host", None)
-            merged["ALLOWED_DIRECTORIES_DOCKER"] =  merged["DOCKER_CONFIG"].get("windows",{}).get("allow_direcotories_docker", None)
-            
-        print("final merged", merged)
+        config_os = merged["DOCKER_CONFIG"].get(platform_name, {})
+        merged["DOCKER_SANDBOX_HOST_ROOT"] = config_os.get("host_root")
+        merged["DOCKER_SANDBOX_WORKDIR"] = config_os.get("work_dir")
+        merged["ALLOWED_DIRECTORIES_HOST"] = config_os.get("allow_direcotories_host")
+        merged["ALLOWED_DIRECTORIES_DOCKER"] = config_os.get("allow_direcotories_docker")
+
+        host_root = merged["DOCKER_SANDBOX_HOST_ROOT"]
+        work_dir = merged["DOCKER_SANDBOX_WORKDIR"]
+        if merged.get("ALLOWED_DIRECTORIES_HOST") is None and host_root:
+            merged["ALLOWED_DIRECTORIES_HOST"] = [host_root]
+        elif host_root and host_root not in merged.get("ALLOWED_DIRECTORIES_HOST", []):
+            merged["ALLOWED_DIRECTORIES_HOST"] = merged.get("ALLOWED_DIRECTORIES_HOST", []) + [
+                host_root
+            ]
+        if merged.get("ALLOWED_DIRECTORIES_DOCKER") is None and work_dir:
+            merged["ALLOWED_DIRECTORIES_DOCKER"] = [work_dir]
+        elif work_dir and work_dir not in merged.get("ALLOWED_DIRECTORIES_DOCKER", []):
+            merged["ALLOWED_DIRECTORIES_DOCKER"] = merged.get("ALLOWED_DIRECTORIES_DOCKER", []) + [
+                work_dir
+            ]
+        logger.debug("final merged %s", merged)
         
         settings = cls(**merged)
         return settings

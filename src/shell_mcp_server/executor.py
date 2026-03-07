@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 import subprocess as _subprocess
 from contextlib import suppress
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Any, Dict
 
 from . import config
 from .execution_policy import resolve_request
 from .models import ExecutionResult, ProcessRecord
 from .platform_adapters import build_posix_shell_command, build_windows_shell_command
+
+logger = logging.getLogger(__name__)
 
 try:
     from anyio import BrokenResourceError, ClosedResourceError
@@ -96,39 +99,16 @@ def _build_shell_command(
     command: str,
     shell: str,
     cwd: str,
-    trusted: bool,
-    persistent_sandbox: bool = False,
+    trusted: bool
 ) -> list[str]:
     if config.SETTINGS is None:
         raise RuntimeError("Server settings are not initialized")
 
     shell_path = config.SETTINGS.ALLOWED_SHELLS[shell]
     platform_name = config.SETTINGS.PLATFORM
-    use_docker_sandbox = (
-        platform_name == "linux"
-        and shell == "bash"
-        and not trusted
-        and config.SETTINGS.UNTRUSTED_USE_DOCKER_SANDBOX
-    )
-
-    if use_docker_sandbox:
-        if cwd == "." and config.SETTINGS.DOCKER_SANDBOX_WORKDIR:
-            cwd = str(Path(config.SETTINGS.DOCKER_SANDBOX_WORKDIR).resolve())
-        elif cwd.startswith("./") and config.SETTINGS.DOCKER_SANDBOX_WORKDIR:
-            cwd = str(Path(config.SETTINGS.DOCKER_SANDBOX_WORKDIR).joinpath(cwd[2:]).resolve())
-        else:
-            cwd = str(Path(cwd).resolve())
-    elif trusted:
-        if cwd == "." and config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT:
-            cwd = str(Path(config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT).resolve())
-        elif cwd.startswith("./") and config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT:
-            cwd = str(Path(config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT).joinpath(cwd[2:]).resolve())
-        else:
-            cwd = str(Path(cwd).resolve())
-    else:
-        cwd = str(Path(cwd).resolve())
 
     if platform_name == "windows":
+        logger.debug("build_windows_shell_command for shell=%s", shell)
         return build_windows_shell_command(
             shell=shell,
             shell_path=shell_path,
@@ -142,11 +122,12 @@ def _build_shell_command(
     elif (
         platform_name == "linux"
     ):
+        logger.debug("build_posix_shell_command for shell=%s", shell)
         return build_posix_shell_command(
             shell_path=shell_path,
             command=command,
             cwd=cwd,
-            trusted=(trusted or not use_docker_sandbox),
+            trusted=trusted,
             work_dir = config.SETTINGS.DOCKER_SANDBOX_WORKDIR,
             host_root = config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT,
             
@@ -160,37 +141,45 @@ async def run_shell_command(
     cwd: str,
     shell: str = "bash",
     on_stdout: Callable[[str], Awaitable[None]] | None = None,
-    on_stderr: Callable[[str], Awaitable[None]] | None = None,
-    persistent_sandbox: bool = False,
+    on_stderr: Callable[[str], Awaitable[None]] | None = None
 ) -> ExecutionResult:
     """Execute command with streaming callbacks and safe lifecycle handling."""
     if config.SETTINGS is None:
         raise RuntimeError("Server settings are not initialized")
 
     request = resolve_request(command=command, cwd=cwd, shell=shell)
-    if (
-        config.SETTINGS.PLATFORM == "linux"
-        and request.shell == "bash"
-        and not request.trusted
-        and config.SETTINGS.UNTRUSTED_USE_DOCKER_SANDBOX
-        and persistent_sandbox
-        and not config.SETTINGS.DOCKER_USE_DRUN_ON_LINUX
-    ):
-        await _ensure_compose_service_running(
-            compose_file=os.path.abspath(config.SETTINGS.DOCKER_SHELL_COMPOSE_FILE),
-            env_file=os.path.abspath(config.SETTINGS.DOCKER_SHELL_ENV_FILE),
-            service=config.SETTINGS.DOCKER_SHELL_SERVICE,
-        )
-
+    # if (
+    #     config.SETTINGS.PLATFORM == "linux"
+    #     and request.shell == "bash"
+    #     and not request.trusted
+    #     and config.SETTINGS.UNTRUSTED_USE_DOCKER_SANDBOX
+    #     and not config.SETTINGS.DOCKER_USE_DRUN_ON_LINUX
+    # ):
+    #     await _ensure_compose_service_running(
+    #         compose_file=os.path.abspath(config.SETTINGS.DOCKER_SHELL_COMPOSE_FILE),
+    #         env_file=os.path.abspath(config.SETTINGS.DOCKER_SHELL_ENV_FILE),
+    #         service=config.SETTINGS.DOCKER_SHELL_SERVICE,
+    #     )
+    logger.debug("request: %s", request)
     shell_cmd = _build_shell_command(
         request.command,
         request.shell,
         request.cwd,
-        request.trusted,
-        persistent_sandbox,
+        request.trusted
     )
+    logger.debug("shell_cmd: %s", shell_cmd)
 
-    spawn_cwd = request.cwd
+    if request.trusted:
+        if Path(request.cwd).exists():
+            spawn_cwd = Path(request.cwd).resolve()
+        else:
+            raise ValueError(f"Directory {request.cwd} does not exist")
+    else:
+        spawn_cwd = config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT
+
+    
+    logger.debug("spawn_cwd: %s", spawn_cwd)
+
     # ── Spawn with own process group ──────────────────────────
     spawn_kw: Dict[str, Any] = dict(
         stdout=asyncio.subprocess.PIPE,
@@ -200,24 +189,22 @@ async def run_shell_command(
 
     if (
         config.SETTINGS.PLATFORM == "linux"
-        and request.shell == "bash"
-        and not request.trusted
-        and config.SETTINGS.UNTRUSTED_USE_DOCKER_SANDBOX
-        and not config.SETTINGS.DOCKER_USE_DRUN_ON_LINUX
     ):
-        spawn_cwd = str(Path(config.SETTINGS.DOCKER_SHELL_COMPOSE_FILE).resolve().parent)
         spawn_kw_env = _docker_compose_env()
     else:
         spawn_kw_env = os.environ.copy()
     
     
 
-    cache_root = Path(request.cwd) / ".cache"
-    uv_cache = cache_root / "uv"
-    pip_cache = cache_root / "pip"
-    spawn_kw_env.setdefault("XDG_CACHE_HOME", str(cache_root))
-    spawn_kw_env.setdefault("UV_CACHE_DIR", str(uv_cache))
-    spawn_kw_env.setdefault("PIP_CACHE_DIR", str(pip_cache))
+    # cache_root = Path(request.cwd) / ".cache"
+    # uv_cache = cache_root / "uv"
+    # pip_cache = cache_root / "pip"
+    # spawn_kw_env.setdefault("XDG_CACHE_HOME", str(cache_root))
+    # spawn_kw_env.setdefault("UV_CACHE_DIR", str(uv_cache))
+    # spawn_kw_env.setdefault("PIP_CACHE_DIR", str(pip_cache))
+
+    # spawn_kw_env = {}
+
 
     spawn_kw: dict[str, object] = {
         "stdout": asyncio.subprocess.PIPE,
@@ -232,6 +219,8 @@ async def run_shell_command(
         spawn_kw["start_new_session"] = True
 
     try:
+        # print(f"create_subprocess_exec shell_cmd: {shell_cmd}")
+        # print(f"create_subprocess_exec spawn_kw: {spawn_kw}") 
         process = await asyncio.create_subprocess_exec(*shell_cmd, **spawn_kw)
     except Exception as exc:
         return ExecutionResult(

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import mcp.types as types
+from anyio import ClosedResourceError
 from fastmcp import Context, FastMCP
 
 from . import config
@@ -32,6 +34,8 @@ from .tmux_commands import (
     build_tmux_send_keys_command,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def register_tools(server: FastMCP) -> None:
     """Register all server tools on the FastMCP instance."""
@@ -44,19 +48,27 @@ def register_tools(server: FastMCP) -> None:
         persistent_sandbox: bool = False,
     ) -> list[types.TextContent]:
         async def _on_stdout(line: str) -> None:
-            await ctx.info(line)
+            try:
+                await ctx.info(line)
+            except ClosedResourceError:
+                pass
 
         async def _on_stderr(line: str) -> None:
-            await ctx.warning(line)
+            try:
+                await ctx.warning(line)
+            except ClosedResourceError:
+                pass
 
-        result = await run_shell_command(
-            command=command,
-            cwd=cwd,
-            shell=shell,
-            on_stdout=_on_stdout,
-            on_stderr=_on_stderr,
-            persistent_sandbox=persistent_sandbox,
-        )
+        try:
+            result = await run_shell_command(
+                command=command,
+                cwd=cwd,
+                shell=shell,
+                on_stdout=_on_stdout,
+                on_stderr=_on_stderr
+            )
+        except ClosedResourceError:
+            return [types.TextContent(type="text", text="[client disconnected]")]
 
         if result.cancelled:
             return [types.TextContent(type="text", text="[client disconnected]")]
@@ -80,7 +92,20 @@ def register_tools(server: FastMCP) -> None:
     ) -> list[types.TextContent]:
         """Inside Sandbox by default; Native only for trusted config entries."""
         try:
+            logger.debug(
+                "Receive command: command=%s, cwd=%s, shell=%s",
+                command,
+                cwd,
+                shell,
+            )
             req = ExecuteCommandInput(command=command, cwd=cwd, shell=shell)
+            logger.debug(
+                "Request command: command=%s, cwd=%s, shell=%s",
+                req.command,
+                req.cwd,
+                req.shell,
+            )
+
             return await _execute_with_stream(
                 command=req.command,
                 cwd=req.cwd,
