@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import platform
 from argparse import Namespace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict
 
 import toml
@@ -25,6 +25,39 @@ def _default_shells(system_name: str) -> dict[str, str]:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_directory_value(path_text: str) -> str:
+    text = path_text.strip()
+    if not text:
+        return text
+
+    if "\\" in text or PureWindowsPath(text).drive:
+        normalized = str(PureWindowsPath(text))
+        anchor = PureWindowsPath(normalized).anchor
+        if anchor and normalized != anchor:
+            normalized = normalized.rstrip("\\/")
+        elif not anchor:
+            normalized = normalized.rstrip("\\/")
+        return normalized or anchor
+
+    normalized = str(PurePosixPath(text.replace("\\", "/")))
+    if normalized != "/":
+        normalized = normalized.rstrip("/")
+    return normalized or "."
+
+
+def _normalize_directory_list(value: list[str] | None) -> list[str]:
+    if not value:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        normalized = _normalize_directory_value(item)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
 
 
 class Settings(BaseSettings):
@@ -84,16 +117,12 @@ class Settings(BaseSettings):
     @field_validator("ALLOWED_DIRECTORIES_DOCKER")
     @classmethod
     def _normalize_allowed_dirs_docker(cls, value: list[str] | None) -> list[str]:
-        if not value:
-            return []
-        return [path for path in value]
+        return _normalize_directory_list(value)
 
     @field_validator("ALLOWED_DIRECTORIES_HOST")
     @classmethod
     def _normalize_allowed_dirs_host(cls, value: list[str] | None) -> list[str]:
-        if not value:
-            return []
-        return [path for path in value]
+        return _normalize_directory_list(value)
 
     @field_validator("DOCKER_SHELL_COMPOSE_FILE")
     @classmethod

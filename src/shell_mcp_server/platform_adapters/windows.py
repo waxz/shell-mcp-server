@@ -26,8 +26,8 @@ def _map_host_cwd_to_sandbox(
     if not cwd:
         return str(PurePosixPath(work_dir))
 
-    cwd_win = PureWindowsPath(cwd)
-    host_root_win = PureWindowsPath(host_root) if host_root else None
+    cwd_win = PureWindowsPath(cwd.replace("/", "\\"))
+    host_root_win = PureWindowsPath(host_root.replace("/", "\\")) if host_root else None
     work_dir_posix = PurePosixPath(work_dir)
 
     if host_root_win and cwd_win.is_absolute() and host_root_win in (cwd_win, *cwd_win.parents):

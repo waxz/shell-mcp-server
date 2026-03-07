@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import posixpath
 import re
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
@@ -43,8 +44,19 @@ def _is_windows_style_path(path_text: str) -> bool:
 
 
 def _normalize_windows_path(path_text: str) -> str:
-    normalized = str(PureWindowsPath(path_text)).replace("/", "\\").rstrip("\\")
-    return normalized.casefold()
+    normalized = str(PureWindowsPath(path_text))
+    anchor = PureWindowsPath(normalized).anchor
+    if anchor:
+        cleaned = normalized if normalized == anchor else normalized.rstrip("\\/")
+    else:
+        cleaned = normalized.rstrip("\\/")
+    return (cleaned or anchor).casefold()
+
+
+def _normalize_posix_path(path_text: str) -> PurePosixPath:
+    text = path_text.replace("\\", "/")
+    normalized = posixpath.normpath(text)
+    return PurePosixPath(normalized)
 
 
 def _coerce_platform_path(
@@ -55,13 +67,13 @@ def _coerce_platform_path(
     if not is_trusted:
         if _is_windows_style_path(path_text):
             raise ValueError(f"Invalid path {path_text} in is_trusted:{is_trusted} env")
-        path = PurePosixPath(path_text)
+        path = _normalize_posix_path(path_text)
         if path.is_absolute():
-            resolved = PurePosixPath(path_text)
+            resolved = path
             return str(resolved)
 
         work_dir = settings.DOCKER_SANDBOX_WORKDIR or "."
-        host_dir = PurePosixPath(work_dir)
+        host_dir = _normalize_posix_path(work_dir)
         resolved = PurePosixPath(host_dir, path)
         return str(resolved)
 
@@ -86,19 +98,6 @@ def _coerce_platform_path(
     resolved = Path(host_root, path)
     return str(resolved)
 
-def _is_absolute_for_platform(path_text: str, settings: config.Settings, is_trusted: bool) -> bool:
-    if not is_trusted:
-        if _is_windows_style_path(path_text):
-            raise ValueError(
-                f"_is_absolute_for_platform Invalid path {path_text} in is_trusted:{is_trusted} env"
-            )
-        else:
-            return Path(path_text).is_absolute()
-    else:
-        if settings.PLATFORM == "windows":
-            return PureWindowsPath(path_text).is_absolute()
-        return Path(path_text).is_absolute()
-
 def _allowed_directories(settings: config.Settings, is_trusted: bool) -> list[str]:
     if is_trusted:
         return settings.ALLOWED_DIRECTORIES_HOST
@@ -109,10 +108,10 @@ def _is_allowed_path(path: str, settings: config.Settings, is_trusted: bool) -> 
     allowed_dirs = _allowed_directories(settings, is_trusted)
 
     if not is_trusted:
-        resolved = PurePosixPath(path)
+        resolved = _normalize_posix_path(path)
         for allowed in allowed_dirs:
             allowed_path = _coerce_platform_path(allowed, settings, is_trusted)
-            allowed_path = PurePosixPath(allowed_path)
+            allowed_path = _normalize_posix_path(allowed_path)
             if resolved == allowed_path or allowed_path in resolved.parents:
                 return True
     else:
