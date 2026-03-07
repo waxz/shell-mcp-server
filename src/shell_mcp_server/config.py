@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 import platform
+import shutil
 from argparse import Namespace
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import Any, Dict
 
 import toml
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+from .path_utils import is_windows_style_path, normalize_directory_value
 
 
 def _default_shells(system_name: str) -> dict[str, str]:
@@ -27,33 +30,13 @@ def _default_shells(system_name: str) -> dict[str, str]:
 logger = logging.getLogger(__name__)
 
 
-def _normalize_directory_value(path_text: str) -> str:
-    text = path_text.strip()
-    if not text:
-        return text
-
-    if "\\" in text or PureWindowsPath(text).drive:
-        normalized = str(PureWindowsPath(text))
-        anchor = PureWindowsPath(normalized).anchor
-        if anchor and normalized != anchor:
-            normalized = normalized.rstrip("\\/")
-        elif not anchor:
-            normalized = normalized.rstrip("\\/")
-        return normalized or anchor
-
-    normalized = str(PurePosixPath(text.replace("\\", "/")))
-    if normalized != "/":
-        normalized = normalized.rstrip("/")
-    return normalized or "."
-
-
 def _normalize_directory_list(value: list[str] | None) -> list[str]:
     if not value:
         return []
     result: list[str] = []
     seen: set[str] = set()
     for item in value:
-        normalized = _normalize_directory_value(item)
+        normalized = normalize_directory_value(item)
         if normalized and normalized not in seen:
             seen.add(normalized)
             result.append(normalized)
@@ -169,6 +152,88 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_docker_sandbox_network(cls, value: str | None) -> str | None:
         return value
+
+    @field_validator("PORT")
+    @classmethod
+    def _validate_port(cls, value: int) -> int:
+        if not (1 <= value <= 65535):
+            raise ValueError("PORT must be in range 1..65535")
+        return value
+
+    @field_validator("PATH")
+    @classmethod
+    def _validate_http_path(cls, value: str) -> str:
+        if not value.startswith("/"):
+            raise ValueError("PATH must start with '/'")
+        if any(ch in value for ch in ("\n", "\r", "\x00")):
+            raise ValueError("PATH contains invalid control characters")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_runtime_contract(self) -> "Settings":
+        if self.TRANSPORT == "http" and not self.PATH:
+            raise ValueError("PATH is required when TRANSPORT is 'http'")
+
+        if self.UNTRUSTED_USE_DOCKER_SANDBOX:
+            if not self.DOCKER_SHELL_COMPOSE_FILE:
+                raise ValueError(
+                    "DOCKER_SHELL_COMPOSE_FILE is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
+                )
+            if not self.DOCKER_SHELL_SERVICE:
+                raise ValueError(
+                    "DOCKER_SHELL_SERVICE is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
+                )
+            if not self.DOCKER_SANDBOX_WORKDIR:
+                raise ValueError(
+                    "DOCKER_SANDBOX_WORKDIR is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
+                )
+
+        self._validate_allowed_shell_paths()
+        self._validate_trusted_shell_platform_compatibility()
+        return self
+
+    def _validate_allowed_shell_paths(self) -> None:
+        virtual_aliases = {
+            "bash",
+            "sh",
+            "cmd",
+            "cmd.exe",
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe",
+            "wsl",
+            "wsl.exe",
+        }
+        for shell_name, shell_path in self.ALLOWED_SHELLS.items():
+            if not shell_path:
+                raise ValueError(f"Shell '{shell_name}' has empty path")
+            if is_windows_style_path(shell_path) or "/" in shell_path:
+                if Path(shell_path).exists():
+                    continue
+                raise ValueError(
+                    f"Shell '{shell_name}' path does not exist: {shell_path}"
+                )
+            if shell_path in virtual_aliases or shutil.which(shell_path):
+                continue
+            raise ValueError(f"Shell '{shell_name}' executable not found: {shell_path}")
+
+    def _validate_trusted_shell_platform_compatibility(self) -> None:
+        for name, spec in self.TRUSTED_COMMANDS.items():
+            shell_name = spec.get("shell")
+            if not shell_name:
+                continue
+            shell_path = self.ALLOWED_SHELLS.get(shell_name, "")
+            if self.PLATFORM == "windows" and shell_path.startswith("/"):
+                raise ValueError(
+                    f"Trusted command '{name}' shell '{shell_name}' is not Windows-compatible: {shell_path}"
+                )
+            if self.PLATFORM != "windows" and (
+                shell_path.lower().endswith(".exe") or "\\" in shell_path
+            ):
+                raise ValueError(
+                    f"Trusted command '{name}' shell '{shell_name}' is not POSIX-compatible: {shell_path}"
+                )
 
     @classmethod
     def from_runtime(

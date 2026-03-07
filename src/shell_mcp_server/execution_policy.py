@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-import posixpath
 import re
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 
 from . import config
 from .models import ExecutionRequest
+from .path_utils import (
+    is_windows_style_path,
+    normalize_posix_path,
+    normalize_windows_path_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,24 +54,12 @@ def _validate_shell_name(shell: str) -> str:
     return shell
 
 
-def _is_windows_style_path(path_text: str) -> bool:
-    return "\\" in path_text or bool(PureWindowsPath(path_text).drive)
-
-
 def _normalize_windows_path(path_text: str) -> str:
-    normalized = str(PureWindowsPath(path_text))
-    anchor = PureWindowsPath(normalized).anchor
-    if anchor:
-        cleaned = normalized if normalized == anchor else normalized.rstrip("\\/")
-    else:
-        cleaned = normalized.rstrip("\\/")
-    return (cleaned or anchor).casefold()
+    return normalize_windows_path_text(path_text)
 
 
 def _normalize_posix_path(path_text: str) -> PurePosixPath:
-    text = path_text.replace("\\", "/")
-    normalized = posixpath.normpath(text)
-    return PurePosixPath(normalized)
+    return normalize_posix_path(path_text)
 
 
 def _coerce_platform_path(
@@ -76,7 +68,7 @@ def _coerce_platform_path(
     is_trusted: bool = True,
 ) -> str:
     if not is_trusted:
-        if _is_windows_style_path(path_text):
+        if is_windows_style_path(path_text):
             raise ValueError(f"Invalid path {path_text} in is_trusted:{is_trusted} env")
         path = _normalize_posix_path(path_text)
         if path.is_absolute():

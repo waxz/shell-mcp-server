@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
-from shell_mcp_server import config
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 
 @pytest.fixture
 def runtime_settings(tmp_path: Path):
     """Initialize global runtime settings for execution tests."""
+    from shell_mcp_server import config
+
     project_dir = tmp_path / "project"
     project_dir.mkdir()
 
