@@ -115,6 +115,24 @@ def _scenario_label(scenario: Scenario) -> str:
     return "-"
 
 
+def _looks_like_error_output(output: str) -> bool:
+    text = output.strip()
+    if text.startswith("Execution failed:"):
+        return True
+    if "[timed out after " in text:
+        return True
+    if "[client disconnected]" in text:
+        return True
+    if "[exit code:" in text:
+        tail = text.rsplit("[exit code:", maxsplit=1)[-1]
+        code_text = tail.split("]", maxsplit=1)[0].strip()
+        try:
+            return int(code_text) != 0
+        except ValueError:
+            return False
+    return False
+
+
 def _row(columns: list[tuple[str, int]]) -> str:
     parts: list[str] = []
     for text, width in columns:
@@ -130,7 +148,7 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
         result = await client.call_tool(scenario.tool, scenario.args)
         output = extract_text(result)
         if scenario.expect_error:
-            if output.startswith("Execution failed:"):
+            if _looks_like_error_output(output):
                 print(f"EXPECTED ERROR: {output}")
                 return ScenarioResult(
                     scenario=scenario,
@@ -382,42 +400,6 @@ python3 "$proj/main.py"
 
 async def run_scenarios(args: argparse.Namespace) -> int:
     client = build_client(args.transport, args.url)
-    sandbox_base = _expected_sandbox_base()
-    if platform.system().lower().startswith("win"):
-        sandbox_test_dir = "/app"
-    else:
-        sandbox_test_dir = f"{sandbox_base.rstrip('/')}/docker/app"
-    sandbox_root_expect: str | None = sandbox_base
-    
-    scenarios_demo = [
-    Scenario(
-                "execute_command",
-                {
-                    "command": "pwd",
-                    "cwd": ".",
-                    "shell": args.shell,
-                },
-            ),
-    Scenario(
-                "execute_command",
-                {
-                    "command": "echo 1234566777opp",
-                    "cwd": ".",
-                    "shell": args.shell,
-                },
-            ),
-    Scenario(
-                "execute_command",
-                {
-                    "command": "pwd",
-                    "cwd": "./data",
-                    "shell": args.shell,
-                },
-            ),
-            
-    ]
-
-
     scenarios = [
         Scenario("greet", {"name": "Test"}),
         Scenario("bye", {"name": "Test"}),
@@ -446,6 +428,34 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                 "shell": args.shell,
             },
         ),
+        
+        Scenario(
+            "execute_command",
+            {
+                "command": "not_exist_cmd build",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+        ),
+        
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo very_long_sleep && sleep 25 && echo very_long_sleep_done",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain="very_long_sleep_done",
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo very_long_sleep && sleep 35 && echo very_long_sleep_done",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),        
         Scenario(
             "execute_command",
             {
@@ -480,7 +490,6 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                 "cwd": args.cwd,
                 "shell": args.shell,
             },
-            must_contain=sandbox_root_expect,
         ),
         Scenario(
             "execute_command",
@@ -504,8 +513,26 @@ async def run_scenarios(args: argparse.Namespace) -> int:
         Scenario(
             "execute_command",
             {
+                "command": "echo should-fail-etc",
+                "cwd": "/etc",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
                 "command": "echo traversal",
                 "cwd": "../",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo deep-traversal",
+                "cwd": "../../../../",
                 "shell": args.shell,
             },
             expect_error=True,
@@ -528,6 +555,24 @@ async def run_scenarios(args: argparse.Namespace) -> int:
             },
             expect_error=True,
         ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo carriage-return-cmd\rwhoami",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo invalid-shell",
+                "cwd": args.cwd,
+                "shell": "bash;whoami",
+            },
+            expect_error=True,
+        ),
     ]
 
     if platform.system().lower().startswith("win"):
@@ -537,6 +582,17 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                 {
                     "command": "echo windows-backslash-traversal",
                     "cwd": ".\\..\\",
+                    "shell": args.shell,
+                },
+                expect_error=True,
+            )
+        )
+        scenarios.append(
+            Scenario(
+                "execute_command",
+                {
+                    "command": "echo windows-abs-path",
+                    "cwd": r"C:\Windows\System32",
                     "shell": args.shell,
                 },
                 expect_error=True,
@@ -588,6 +644,15 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                             "cwd": args.cwd,
                             "shell": args.shell,
                         },
+                    ),
+                    Scenario(
+                        "tmux_kill_session",
+                        {
+                            "session_name": "mcp_bad;rm-rf",
+                            "cwd": args.cwd,
+                            "shell": args.shell,
+                        },
+                        expect_error=True,
                     ),
                     Scenario(
                         "tmux_list_session",

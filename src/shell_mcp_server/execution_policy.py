@@ -14,6 +14,7 @@ from .models import ExecutionRequest
 logger = logging.getLogger(__name__)
 
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+_SHELL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def validate_tmux_session_name(session_name: str) -> str:
@@ -37,6 +38,16 @@ def _validate_string_cwd(value: str, field_name: str) -> str:
     if "\n" in value or "\r" in value:
         raise ValueError(f"Invalid {field_name}: multiline input is not allowed")
     return value
+
+
+def _validate_shell_name(shell: str) -> str:
+    if "\x00" in shell:
+        raise ValueError("Invalid shell: null byte is not allowed")
+    if "\n" in shell or "\r" in shell:
+        raise ValueError("Invalid shell: multiline input is not allowed")
+    if not _SHELL_NAME_RE.fullmatch(shell):
+        raise ValueError("Invalid shell: only [A-Za-z0-9_.-] is allowed")
+    return shell
 
 
 def _is_windows_style_path(path_text: str) -> bool:
@@ -149,6 +160,7 @@ def resolve_request(command: str, cwd: str, shell: str = "bash") -> ExecutionReq
 
     _validate_string_input(command, "command")
     _validate_string_cwd(cwd, "cwd")
+    _validate_shell_name(shell)
 
     is_trusted = command in settings.TRUSTED_COMMANDS
     resolved_command = command
