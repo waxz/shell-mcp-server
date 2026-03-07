@@ -1,430 +1,567 @@
-import asyncio
-import sys
-import json
-from datetime import datetime
-from fastmcp import Client
-from fastmcp.client.logging import LogMessage
-import time
+"""Integration test runner for shell-mcp-server tools.
+
+Usage:
+  python ./test.py
+  python ./test.py --transport http --url http://localhost:8000/mcp
+"""
+
+from __future__ import annotations
+
 import argparse
+import asyncio
+import json
+import os
+import platform
+import sys
+from datetime import datetime
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
-parser = argparse.ArgumentParser(description="Shell MCP Server Tester")
+from fastmcp import Client
 
-
-parser.add_argument(
-    "-t", "--transport", type=str, default="stdio", choices=["stdio", "http"]
-)
-args = parser.parse_args()
-
-
-def on_log_message(message):
-    level = getattr(message, "level", "info")
-    data = getattr(message, "data", str(message))
-    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
-    if level in ("warning", "error"):
-        print(f"  ⚠ [{ts}] {data}", file=sys.stderr, flush=True)
-    else:
-        print(f"  │ [{ts}] {data}", file=sys.stderr, flush=True)
+PROJECT_ROOT = Path(__file__).resolve().parent
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 
-async def log_handler(message: LogMessage):
-    print(f"Server log: {message.data}")
+@dataclass
+class Scenario:
+    tool: str
+    args: dict[str, Any]
+    expect_error: bool = False
+    must_contain: str | None = None
 
 
-async def progress_handler(progress: float, total: float | None, message: str | None):
-    print(f"Progress: {progress}/{total} - {message}")
+@dataclass
+class ScenarioResult:
+    scenario: Scenario
+    passed: bool
+    output: str = ""
+    error: str = ""
+    detail: str = ""
 
 
-async def sampling_handler(messages, params, context):
-    return "Generated response"
-
-
-
-if args.transport == "http":
-    SERVER = "http://localhost:8000/mcp"
-else:
-    from shell_mcp_server import server
-
-    SERVER = server.server
-
-
-try:
-    client = Client(
-        SERVER,
-        log_handler=log_handler,
-        progress_handler=progress_handler,
-        sampling_handler=sampling_handler,
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Shell MCP Server integration tester")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Client transport target",
     )
-    STREAMING = True
-except TypeError:
-    client = Client(SERVER)
-    STREAMING = False
+    parser.add_argument(
+        "--url",
+        default="http://localhost:8000/mcp",
+        help="HTTP MCP endpoint when --transport=http",
+    )
+    parser.add_argument(
+        "--cwd",
+        default=".",
+        help="Working directory for execute_command scenarios",
+    )
+    parser.add_argument(
+        "--shell",
+        default="bash",
+        help="Shell name for execute_command scenarios",
+    )
+    parser.add_argument(
+        "--report",
+        default="report.txt",
+        help="Output report path",
+    )
+    return parser.parse_args()
 
 
-def print_result(result):
-    print("─── result ───")
-    for content in result.content:
-        text = content.text
-        try:
-            parsed = json.loads(text.replace("'", '"'))
-            for k, v in parsed.items():
-                print(f"  {k} → {v}")
-        except (json.JSONDecodeError, AttributeError):
-            print(text)
-    print("──────────────")
+def build_client(transport: str, url: str) -> Client:
+    if transport == "http":
+        return Client(url)
+
+    from shell_mcp_server.server import build_server
+
+    old_argv = sys.argv[:]
+    try:
+        sys.argv = [sys.argv[0]]
+        server = build_server()
+    finally:
+        sys.argv = old_argv
+    return Client(server)
 
 
-async def call(tool: str, args: dict, expect_error: bool = False):
-    """Call a tool, showing streamed output + final result."""
-    print(f"\n{'═' * 60}")
-    print(f"▶ {tool}({json.dumps(args, ensure_ascii=False)})")
-    if STREAMING:
-        print(f"  (streaming enabled)")
-    print(f"{'═' * 60}")
+def extract_text(result: Any) -> str:
+    parts: list[str] = []
+    for content in getattr(result, "content", []):
+        text = getattr(content, "text", "")
+        if text:
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _one_line(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _truncate(value: str, limit: int = 72) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3] + "..."
+
+
+def _scenario_label(scenario: Scenario) -> str:
+    command = scenario.args.get("command")
+    if isinstance(command, str) and command:
+        return _truncate(_one_line(command))
+    return "-"
+
+
+def _row(columns: list[tuple[str, int]]) -> str:
+    parts: list[str] = []
+    for text, width in columns:
+        parts.append(text.ljust(width)[:width])
+    return " | ".join(parts)
+
+
+async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
+    label = f"{scenario.tool}({json.dumps(scenario.args, ensure_ascii=False)})"
+    print(f"\n=== {label}")
 
     try:
-        result = await client.call_tool(tool, args)
-        print()
-        if expect_error:
-            print("  ⚠ Expected error but got result:")
-        print_result(result)
-        return result
-    except Exception as e:
-        if expect_error:
-            print(f"  ✓ Expected error: {e}")
-        else:
-            print(f"  ✖ ERROR: {e}")
-        return None
-
-
-async def main():
-    async with client:
-        # ═══════════════════════════════════════════════════════════
-        # 1. BASIC TOOLS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 1: Basic Tools")
-        print("=" * 60)
-
-        await call("greet", {"name": "Test"})
-        await call("bye", {"name": "Test"})
-
-        # ═══════════════════════════════════════════════════════════
-        # 2. PATH VALIDATION TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 2: Path Validation")
-        print("=" * 60)
-
-        # uv_install
-        await call(
-            "execute_command", {"command": "uv_install", "shell": "powershell", "cwd": "."}
-        )
-
-        # 2a. Valid path (current directory)
-        await call(
-            "execute_command", {"command": "pwd && ls -la", "shell": "bash", "cwd": "."}
-        )
-
-        # 2b. Valid path - /tmp
-        await call(
-            "execute_command",
-            {
-                "command": "echo 'test' > /tmp/test_file.txt && cat /tmp/test_file.txt",
-                "shell": "bash",
-                "cwd": "/tmp",
-            },
-        )
-        result = await call(
-            "tmux_execute",
-            {
-                "command": "for i in {1..5}; do echo mcp Tmux processing $i; done",
-                "cwd": ".",
-                "session_name": "mcp_test",
-            },
-        )
-        # 10f. Get output again
-        await call("tmux_get_output", {"session_name": "mcp_test","clear_after":True})
-
-        # tmux_execute_command
-        
-        await call(
-            "tmux_execute", {"command": 'echo "hello mcp" >> a.log && cat a.log', "shell": "bash", "cwd": ".","session_name": "mcp_test1"}
-        )
-        
-        time.sleep(5)
-        await call("tmux_get_output", {"session_name": "mcp_test1","clear_after":False})
-        await call("tmux_list_session", {})
-        # await call("tmux_kill_session", {"session_name": "mcp_test"})
-
-        # 2c. Invalid path - outside allowed directories
-        # This should fail if path is not in allowed directories
-        await call(
-            "execute_command",
-            {"command": "ls /", "shell": "bash", "cwd": "/"},
-            expect_error=True,
-        )
-
-        # 2d. Path traversal attempt
-        await call(
-            "execute_command",
-            {"command": "ls ../", "shell": "bash", "cwd": "."},
-            expect_error=True,
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 3. SHELL VALIDATION TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 3: Shell Validation")
-        print("=" * 60)
-
-        # 3a. Valid shell - bash
-        await call(
-            "execute_command", {"command": "echo $SHELL", "shell": "bash", "cwd": "."}
-        )
-
-        # 3b. Valid shell - wsl
-        await call(
-            "execute_command", {"command": "echo $SHELL", "shell": "wsl", "cwd": "."}
-        )
-
-        # 3c. Invalid shell (should be rejected by config)
-        await call(
-            "execute_command",
-            {"command": "echo test", "shell": "invalid_shell", "cwd": "."},
-            expect_error=True,
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 4. PROCESS MANAGEMENT TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 4: Process Management")
-        print("=" * 60)
-
-        # 4a. List processes (should be empty initially)
-        await call("list_processes", {})
-
-        # 4b. Start a long-running process and get its PID
-        print("\n  Starting long-running process...")
-        result = await call(
-            "execute_command",
-            {
-                "command": "for i in {1..5}; do echo 'Processing $i'; sleep 1; done",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # 4c. List processes (should show running process)
-        await call("list_processes", {})
-
-        # 4d. Try to terminate non-existent process
-        await call("terminate_process", {"pid": 99999})
-
-        # 4e. Terminate all processes
-        await call("terminate_all_processes", {})
-
-        # 4f. List processes again (should be empty)
-        await call("list_processes", {})
-
-        # ═══════════════════════════════════════════════════════════
-        # 5. TIMEOUT TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 5: Timeout Tests")
-        print("=" * 60)
-
-        # 5a. Command that should timeout (5 second timeout default)
-        print("\n  Testing timeout (command takes 10s, timeout is 5s)...")
-        await call(
-            "execute_command",
-            {
-                "command": "for i in {1..10}; do echo 'Wait $i'; sleep 1; done",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 6. ERROR HANDLING TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 6: Error Handling")
-        print("=" * 60)
-
-        # 6a. Non-existent command
-        await call(
-            "execute_command",
-            {
-                "command": "this_command_does_not_exist_12345",
-                "shell": "bash",
-                "cwd": ".",
-            },
-            expect_error=True,
-        )
-
-        # 6b. Command with syntax error
-        await call(
-            "execute_command",
-            {
-                "command": "if then else fi",  # syntax error
-                "shell": "bash",
-                "cwd": ".",
-            },
-            expect_error=True,
-        )
-
-        # 6c. Exit code handling
-        await call(
-            "execute_command", {"command": "exit 42", "shell": "bash", "cwd": "."}
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 7. STREAMING TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 7: Streaming Tests")
-        print("=" * 60)
-
-        # 7a. Large output (should stream)
-        await call(
-            "execute_command",
-            {
-                "command": "for i in {1..50}; do echo 'Line $i: This is a test line with some content'; done",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # 7b. stderr output
-        await call(
-            "execute_command",
-            {
-                "command": "echo 'stdout' && echo 'stderr' >&2 && echo 'more stdout'",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 8. SPECIAL CHARACTERS TESTS
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 8: Special Characters")
-        print("=" * 60)
-
-        # 8a. Unicode characters
-        await call(
-            "execute_command",
-            {
-                "command": "echo 'Hello 世界 🌍 🎉' && echo '日本語テスト'",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # 8b. Special shell characters
-        await call(
-            "execute_command",
-            {
-                "command": "echo 'Special: $HOME && || ;; << >> | &'",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # 8c. Command with quotes
-        await call(
-            "execute_command",
-            {
-                "command": "echo \"She said: 'Hello World'\" && echo 'He said: \"Hi\"'",
-                "shell": "bash",
-                "cwd": ".",
-            },
-        )
-
-        # ═══════════════════════════════════════════════════════════
-        # 9. CONCURRENT EXECUTION TEST
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 9: Concurrent Execution")
-        print("=" * 60)
-
-        print("\n  Running 3 commands concurrently...")
-
-        async def run_concurrent(name, delay):
-            return await call(
-                "execute_command",
-                {
-                    "command": f"echo 'Task {name} started' && sleep {delay} && echo 'Task {name} done'",
-                    "shell": "bash",
-                    "cwd": ".",
-                },
+        result = await client.call_tool(scenario.tool, scenario.args)
+        output = extract_text(result)
+        if scenario.expect_error:
+            if output.startswith("Execution failed:"):
+                print(f"EXPECTED ERROR: {output}")
+                return ScenarioResult(
+                    scenario=scenario,
+                    passed=True,
+                    output=output,
+                    detail="expected error matched tool error output",
+                )
+            print("FAILED: expected an error but call succeeded")
+            print(output)
+            return ScenarioResult(
+                scenario=scenario,
+                passed=False,
+                output=output,
+                detail="expected error but call succeeded",
             )
 
-        # Run 3 commands concurrently
-        results = await asyncio.gather(
-            run_concurrent("A", 2),
-            run_concurrent("B", 3),
-            run_concurrent("C", 1),
+        if scenario.must_contain and scenario.must_contain not in output:
+            print(f"FAILED: expected output to contain: {scenario.must_contain!r}")
+            print(output or "<empty>")
+            return ScenarioResult(
+                scenario=scenario,
+                passed=False,
+                output=output,
+                detail=f"missing expected substring: {scenario.must_contain!r}",
+            )
+
+        if "No such file or directory" in output:
+            print("FAILED: unexpected path resolution error")
+            print(output)
+            return ScenarioResult(
+                scenario=scenario,
+                passed=False,
+                output=output,
+                detail="unexpected path resolution error",
+            )
+
+        print(output or "<empty>")
+        return ScenarioResult(scenario=scenario, passed=True, output=output)
+    except Exception as exc:  # noqa: BLE001
+        if scenario.expect_error:
+            print(f"EXPECTED ERROR: {exc}")
+            return ScenarioResult(
+                scenario=scenario,
+                passed=True,
+                error=str(exc),
+                detail="expected exception raised",
+            )
+        print(f"FAILED: {exc}")
+        return ScenarioResult(
+            scenario=scenario,
+            passed=False,
+            error=str(exc),
+            detail="unexpected exception",
         )
 
-        print("\n  All concurrent tasks completed!")
-        await call("terminate_all_processes", {})
 
-        # ═══════════════════════════════════════════════════════════
-        # 10. TMUX TESTS
-        # Commands run in tmux persist after client disconnect
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  SECTION 10: Tmux Tests")
-        print("=" * 60)
+def write_report(
+    report_path: Path,
+    args: argparse.Namespace,
+    results: list[ScenarioResult],
+) -> None:
+    passed = sum(1 for item in results if item.passed)
+    total = len(results)
+    failed = [item for item in results if not item.passed]
 
-        # 10a. List tmux sessions (should be empty)
-        await call("tmux_list", {})
+    lines: list[str] = []
+    lines.append("Shell MCP Server Test Report")
+    lines.append(f"Generated: {datetime.now().isoformat(timespec='seconds')}")
+    lines.append(f"Host OS: {platform.platform()}")
+    lines.append(f"Host System: {platform.system()} {platform.release()}")
+    lines.append(f"Host Machine: {platform.machine()}")
+    lines.append(f"Host CPU: {platform.processor() or 'unknown'}")
+    lines.append(f"CPU Cores (logical): {os.cpu_count()}")
+    lines.append(f"Memory Total: {_get_memory_total_human()}")
+    lines.append(f"Python: {platform.python_version()}")
+    lines.append(f"Transport: {args.transport}")
+    lines.append(f"CWD arg: {args.cwd}")
+    lines.append(f"Shell arg: {args.shell}")
+    lines.append(f"Summary: {passed}/{total} scenarios passed")
+    lines.append("")
 
-        # 10b. Start a long-running command in tmux
-        print("\n  Starting long command in tmux session...")
-        result = await call(
-            "tmux_execute",
+    lines.append("Result Table")
+    lines.append("=" * 78)
+    lines.append(
+        _row(
+            [
+                ("#", 3),
+                ("Status", 6),
+                ("Tool", 18),
+                ("Check", 24),
+                ("Case", 22),
+            ]
+        )
+    )
+    lines.append("-" * 78)
+    for idx, item in enumerate(results, start=1):
+        scenario = item.scenario
+        if scenario.expect_error:
+            check = "expect error"
+        elif scenario.must_contain:
+            check = _truncate(f"contains: {scenario.must_contain}", 24)
+        else:
+            check = "normal"
+        lines.append(
+            _row(
+                [
+                    (str(idx), 3),
+                    ("PASS" if item.passed else "FAIL", 6),
+                    (scenario.tool, 18),
+                    (check, 24),
+                    (_scenario_label(scenario), 22),
+                ]
+            )
+        )
+    lines.append("=" * 78)
+    lines.append("")
+
+    lines.append(f"Failed Scenarios: {len(failed)}")
+    if failed:
+        lines.append("-" * 78)
+        for item in failed:
+            scenario = item.scenario
+            lines.append(f"Tool: {scenario.tool}")
+            lines.append(f"Args: {json.dumps(scenario.args, ensure_ascii=False)}")
+            if scenario.must_contain:
+                lines.append(f"Expected contain: {scenario.must_contain}")
+            if scenario.expect_error:
+                lines.append("Expected error: True")
+            if item.detail:
+                lines.append(f"Detail: {item.detail}")
+            if item.error:
+                lines.append(f"Error: {item.error}")
+            if item.output:
+                lines.append("Actual output:")
+                lines.append(item.output)
+            lines.append("-" * 78)
+    lines.append("")
+
+    lines.append("Detailed Results")
+    lines.append("=" * 78)
+
+    for idx, item in enumerate(results, start=1):
+        scenario = item.scenario
+        status = "PASS" if item.passed else "FAIL"
+        lines.append(f"[{idx}] {status} {scenario.tool}")
+        lines.append(f"Args: {json.dumps(scenario.args, ensure_ascii=False)}")
+        lines.append(f"Expect error: {scenario.expect_error}")
+        if scenario.must_contain:
+            lines.append(f"Must contain: {scenario.must_contain}")
+        if item.detail:
+            lines.append(f"Detail: {item.detail}")
+        if item.error:
+            lines.append(f"Error: {item.error}")
+        if item.output:
+            lines.append("Output:")
+            lines.append(item.output)
+        lines.append("-" * 78)
+
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _get_memory_total_human() -> str:
+    """Best-effort total memory detection with stdlib fallbacks."""
+    # Linux / WSL
+    meminfo = Path("/proc/meminfo")
+    if meminfo.exists():
+        try:
+            for line in meminfo.read_text(encoding="utf-8").splitlines():
+                if line.startswith("MemTotal:"):
+                    # Format: MemTotal:  32895332 kB
+                    kb = int(line.split()[1])
+                    return _format_bytes(kb * 1024)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Optional psutil fallback if available in environment.
+    try:
+        import psutil  # type: ignore
+
+        return _format_bytes(int(psutil.virtual_memory().total))
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _format_bytes(value: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(value)
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{value} B"
+
+
+def _is_wsl_runtime() -> bool:
+    if platform.system().lower() != "linux":
+        return False
+    release = platform.release().lower()
+    version = platform.version().lower()
+    return "microsoft" in release or "microsoft" in version
+
+
+def _expected_sandbox_base() -> str:
+    if platform.system().lower().startswith("win"):
+        return "/app"
+    if _is_wsl_runtime():
+        return str(PROJECT_ROOT)
+    return "/workspace"
+
+
+# Keep this as a raw multiline bash script, then normalize to LF for Windows drun.
+human_like_python_project_cmd = r"""
+set -e
+proj=".mcp_human_py"
+
+rm -rf "$proj" && mkdir -p "$proj"
+
+# Avoid single quotes in payload to keep PowerShell -> drun -> bash quoting stable.
+echo "import toml,time" > "$proj/main.py"
+
+echo "data={\"status\": \"success\", \"msg\": \"hello from app\"}" >> "$proj/main.py"
+echo "print(f'data: {data}')" >> "$proj/main.py"
+echo "print(toml.dumps(data))" >> "$proj/main.py"
+
+echo "print('sleep 10')" >> "$proj/main.py"
+
+echo "time.sleep(10)" >> "$proj/main.py"
+
+echo "toml" > "$proj/requirements.txt"
+
+uv pip install -r "$proj/requirements.txt"
+python3 "$proj/main.py"
+""".replace("\r\n", "\n").strip()
+
+async def run_scenarios(args: argparse.Namespace) -> int:
+    client = build_client(args.transport, args.url)
+    sandbox_base = _expected_sandbox_base()
+    if platform.system().lower().startswith("win"):
+        sandbox_test_dir = "/app"
+    else:
+        sandbox_test_dir = f"{sandbox_base.rstrip('/')}/docker/app"
+    sandbox_root_expect: str | None = sandbox_base
+    
+
+
+
+    scenarios = [
+        Scenario("greet", {"name": "Test"}),
+        Scenario("bye", {"name": "Test"}),
+        Scenario(
+            "execute_command",
             {
-                "command": "for i in {1..5}; do echo 'Tmux processing $i'; sleep 1; done",
-                "cwd": ".",
-                "session_name": "mcp_test",
+                "command": "echo hello-from-test",
+                "cwd": args.cwd,
+                "shell": args.shell,
             },
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo Hello 世界 ✓",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain="Hello 世界 ✓",
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo a\\&b\\|c\\;d",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain="a&b|c;d",
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": human_like_python_project_cmd,
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain="hello from app",
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "pwd",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain=sandbox_root_expect,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "trusted_pwd",
+                "cwd": args.cwd,
+                "shell": args.shell,
+            },
+            must_contain=str(PROJECT_ROOT),
+        ),
+        Scenario("list_processes", {}),
+        Scenario("terminate_all_processes", {}),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo should-fail",
+                "cwd": "/",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo traversal",
+                "cwd": "../",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo multiline-path",
+                "cwd": "./\n/tmp",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+        Scenario(
+            "execute_command",
+            {
+                "command": "echo null-byte-path",
+                "cwd": "./\x00/tmp",
+                "shell": args.shell,
+            },
+            expect_error=True,
+        ),
+    ]
+
+    if platform.system().lower().startswith("win"):
+        scenarios.append(
+            Scenario(
+                "execute_command",
+                {
+                    "command": "echo windows-backslash-traversal",
+                    "cwd": ".\\..\\",
+                    "shell": args.shell,
+                },
+                expect_error=True,
+            )
         )
 
-        # 10c. List tmux sessions (should show our session)
-        await call("tmux_list", {})
+    results: list[ScenarioResult] = []
+    async with client:
+        tmux_available = False
+        try:
+            probe = await client.call_tool(
+                "execute_command",
+                {"command": "tmux -V >/dev/null 2>&1; echo $?", "cwd": args.cwd, "shell": args.shell},
+            )
+            probe_text = extract_text(probe)
+            tmux_available = "\n0\n" in f"\n{probe_text}\n"
+        except Exception:
+            tmux_available = False
 
-        # 10d. Get output from tmux session
-        for i in range(5):
-            await call("tmux_get_output", {"session_name": "mcp_test","clear_after":False})
-            time.sleep(1)
-        # 10e. Send input to tmux session
-        await call(
-            "tmux_send_input",
-            {"session_name": "mcp_test", "input_text": "echo 'Hello from tmux'"},
-        )
+        if tmux_available:
+            session = "mcp_test_py"
+            scenarios.extend(
+                [
+                    Scenario(
+                        "tmux_execute",
+                        {
+                            "command": "pwd && echo tmux at 1 2 3 > log.txt && cat log.txt",
+                            "cwd": args.cwd,
+                            "session_name": session,
+                            "shell": args.shell,
+                        },
+                    ),
+                    Scenario(
+                        "tmux_get_output",
+                        {
+                            "session_name": session,
+                            "cwd": args.cwd,
+                            "shell": args.shell,
+                        },
+                    ),
+                    Scenario(
+                        "tmux_list_session",
+                        {"cwd": args.cwd, "shell": args.shell},
+                    ),
+                    Scenario(
+                        "tmux_kill_session",
+                        {
+                            "session_name": session,
+                            "cwd": args.cwd,
+                            "shell": args.shell,
+                        },
+                    ),
+                    Scenario(
+                        "tmux_list_session",
+                        {"cwd": args.cwd, "shell": args.shell},
+                    ),
 
-        # 10f. Get output again
-        await call("tmux_get_output", {"session_name": "mcp_test","clear_after":False})
+                ]
+            )
+        else:
+            print("\n[INFO] tmux not usable in current environment; skipping tmux tool scenarios")
 
-        # 10g. Kill tmux session
-        await call("tmux_kill_session", {"session_name": "mcp_test"})
+        for scenario in scenarios:
+            results.append(await call_tool(client, scenario))
 
-        # 10h. List tmux sessions (should be empty again)
-        await call("tmux_list_session", {})
+    passed = sum(1 for item in results if item.passed)
+    total = len(results)
+    print(f"\nSummary: {passed}/{total} scenarios passed")
+    report_path = Path(args.report)
+    if not report_path.is_absolute():
+        report_path = PROJECT_ROOT / report_path
+    report_path = report_path.resolve()
+    write_report(report_path=report_path, args=args, results=results)
+    print(f"Report written: {report_path}")
+    return 0 if passed == total else 1
 
-        # ═══════════════════════════════════════════════════════════
-        # SUMMARY
-        # ═══════════════════════════════════════════════════════════
-        print("\n" + "=" * 60)
-        print("  ALL TESTS COMPLETED!")
-        print("=" * 60)
+
+def main() -> None:
+    args = parse_args()
+    exit_code = asyncio.run(run_scenarios(args))
+    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

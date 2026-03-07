@@ -1,35 +1,39 @@
-"""Test configuration and fixtures for shell MCP server tests."""
+"""Test fixtures for shell-mcp-server."""
 
-import os
+from __future__ import annotations
+
+from argparse import Namespace
+from pathlib import Path
+
 import pytest
-import tempfile
-from typing import Dict, List, Generator
+
+from shell_mcp_server import config
+
 
 @pytest.fixture
-def temp_directory() -> Generator[str, None, None]:
-    """Create a temporary directory for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
+def runtime_settings(tmp_path: Path):
+    """Initialize global runtime settings for execution tests."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
 
-@pytest.fixture
-def allowed_directories(temp_directory: str) -> List[str]:
-    """Create a list of allowed directories for testing."""
-    project_dir = os.path.join(temp_directory, "project")
-    other_dir = os.path.join(temp_directory, "other")
-    os.makedirs(project_dir)
-    os.makedirs(other_dir)
-    return [project_dir, other_dir]
+    args = Namespace(
+        directories=[str(project_dir)],
+        shell=None,
+        transport=None,
+        host=None,
+        port=None,
+        path=None,
+        config=str(tmp_path / "missing-config.toml"),
+    )
 
-@pytest.fixture
-def test_shells() -> Dict[str, str]:
-    """Define test shells based on the platform."""
-    if os.name == 'nt':  # Windows
-        return {
-            'cmd': 'cmd.exe',
-            'powershell': 'powershell.exe'
-        }
-    else:  # Unix-like
-        return {
-            'bash': '/bin/bash',
-            'sh': '/bin/sh'
-        }
+    settings = config.Settings.from_runtime(
+        args=args,
+        parsed_shells={"bash": "/bin/bash", "sh": "/bin/sh"},
+        shells_from_cli=True,
+    )
+    settings.UNTRUSTED_USE_DOCKER_SANDBOX = False
+    config.SETTINGS = settings
+
+    yield settings
+
+    config.SETTINGS = None

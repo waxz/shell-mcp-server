@@ -1,40 +1,121 @@
-"""Tests for the configuration module."""
+"""Tests for settings merge and validation contract."""
 
-import os
-import tempfile
-import pytest
+from __future__ import annotations
+
+from argparse import Namespace
+from pathlib import Path
+
 from shell_mcp_server.config import Settings
 
 
-def test_settings_initialization(allowed_directories: list[str], test_shells: dict[str, str]):
-    """Test that Settings can be initialized with directories and shells."""
-    settings = Settings(directories=allowed_directories, shells=test_shells)
-    
-    assert settings.ALLOWED_DIRECTORIES == [os.path.abspath(d) for d in allowed_directories]
-    assert settings.ALLOWED_SHELLS == test_shells
+def test_settings_cli_shells_override_config(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "COMMAND_TIMEOUT = 60",
+                "[ALLOWED_SHELLS]",
+                'bash = "/bin/false"',
+            ]
+        ),
+        encoding="utf-8",
+    )
 
+    args = Namespace(
+        directories=[str(tmp_path)],
+        shell=[("bash", "/bin/bash")],
+        transport=None,
+        host=None,
+        port=None,
+        path=None,
+        config=str(config_path),
+    )
 
-def test_is_path_allowed(allowed_directories: list[str], test_shells: dict[str, str]):
-    """Test path validation."""
-    settings = Settings(directories=allowed_directories, shells=test_shells)
-    
-    # Test allowed paths
-    assert settings.is_path_allowed(allowed_directories[0])
-    assert settings.is_path_allowed(os.path.join(allowed_directories[0], "subdir"))
-    
-    # Test disallowed paths
-    with tempfile.TemporaryDirectory() as tmpdir:
-        assert not settings.is_path_allowed(tmpdir)
-        assert not settings.is_path_allowed("/some/random/path")
+    settings = Settings.from_runtime(
+        args=args,
+        parsed_shells={"bash": "/bin/bash"},
+        shells_from_cli=True,
+    )
 
-
-def test_command_timeout_setting(allowed_directories: list[str], test_shells: dict[str, str]):
-    """Test command timeout configuration."""
-    settings = Settings(directories=allowed_directories, shells=test_shells)
-    assert settings.COMMAND_TIMEOUT == 30  # default value
-
-    # Test with environment variable
-    os.environ["COMMAND_TIMEOUT"] = "60"
-    settings = Settings(directories=allowed_directories, shells=test_shells)
+    assert settings.ALLOWED_SHELLS["bash"] == "/bin/bash"
     assert settings.COMMAND_TIMEOUT == 60
-    del os.environ["COMMAND_TIMEOUT"]
+
+
+def test_settings_uses_config_shells_when_cli_not_set(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "COMMAND_TIMEOUT = 25",
+                "[ALLOWED_SHELLS]",
+                'bash = "/bin/sh"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    args = Namespace(
+        directories=[str(tmp_path)],
+        shell=None,
+        transport=None,
+        host=None,
+        port=None,
+        path=None,
+        config=str(config_path),
+    )
+
+    settings = Settings.from_runtime(
+        args=args,
+        parsed_shells={},
+        shells_from_cli=False,
+    )
+
+    assert settings.ALLOWED_SHELLS["bash"] == "/bin/sh"
+    assert settings.COMMAND_TIMEOUT == 25
+
+
+def test_settings_default_allowed_directory_when_not_provided(tmp_path: Path):
+    args = Namespace(
+        directories=None,
+        shell=None,
+        transport=None,
+        host=None,
+        port=None,
+        path=None,
+        config=str(tmp_path / "missing.toml"),
+    )
+    settings = Settings.from_runtime(args=args, parsed_shells={}, shells_from_cli=False)
+    assert isinstance(settings.ALLOWED_DIRECTORIES, list)
+    assert len(settings.ALLOWED_DIRECTORIES) == 1
+
+
+def test_settings_rejects_trusted_command_with_invalid_shell(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[TRUSTED_COMMANDS.bad_cmd]",
+                'command = "echo bad"',
+                'shell = "powershell"',
+                f'cwd = "{tmp_path.as_posix()}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    args = Namespace(
+        directories=[str(tmp_path)],
+        shell=None,
+        transport=None,
+        host=None,
+        port=None,
+        path=None,
+        config=str(config_path),
+    )
+
+    try:
+        Settings.from_runtime(args=args, parsed_shells={}, shells_from_cli=False)
+    except ValueError as exc:
+        assert "Trusted command 'bad_cmd' uses invalid shell" in str(exc)
+    else:
+        raise AssertionError("Expected trusted command shell validation to fail")

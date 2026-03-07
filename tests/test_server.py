@@ -1,127 +1,96 @@
-"""Tests for the shell MCP server functionality."""
+"""Tests for execution behavior and policy enforcement."""
 
-import os
-import pytest
+from __future__ import annotations
+
 import asyncio
-from shell_mcp_server.server import run_shell_command, settings
-from typing import List, Dict
+from pathlib import Path
 
+import pytest
 
-@pytest.fixture(autouse=True)
-def setup_test_settings(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Configure test settings before each test."""
-    settings.ALLOWED_DIRECTORIES = [os.path.abspath(d) for d in allowed_directories]
-    settings.ALLOWED_SHELLS = test_shells
-    return settings
+from shell_mcp_server.executor import run_shell_command, running_processes
+from shell_mcp_server.execution_policy import validate_tmux_session_name
 
 
 @pytest.mark.asyncio
-async def test_run_shell_command_success(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test successful shell command execution."""
-    # Create a test file
-    test_file = os.path.join(allowed_directories[0], "test.txt")
-    with open(test_file, "w") as f:
-        f.write("test content")
-    
-    # Test command execution
-    shell_name = next(iter(test_shells.keys()))  # Get first shell
-    if os.name == 'nt':
-        command = 'type test.txt' if shell_name == 'cmd' else 'Get-Content test.txt'
-    else:
-        command = 'cat test.txt'
-    
-    result = await run_shell_command(shell_name, command, allowed_directories[0])
-    
-    assert result["exit_code"] == 0
-    assert "test content" in result["stdout"]
-    assert not result["stderr"]
+async def test_run_shell_command_success(runtime_settings):
+    result = await run_shell_command("echo hello", cwd=runtime_settings.ALLOWED_DIRECTORIES[0])
+    assert result.exit_code == 0
+    assert "hello" in result.stdout
 
 
 @pytest.mark.asyncio
-async def test_run_shell_command_invalid_directory(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test command execution in invalid directory."""
-    shell_name = next(iter(test_shells.keys()))
-    with pytest.raises(ValueError, match="is not in the allowed directories"):
-        await run_shell_command(shell_name, "ls", "/invalid/directory")
+async def test_run_shell_command_invalid_directory(runtime_settings):
+    with pytest.raises(ValueError, match="Directory not allowed"):
+        await run_shell_command("echo hello", cwd="/")
 
 
 @pytest.mark.asyncio
-async def test_run_shell_command_invalid_shell(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test command execution with invalid shell."""
-    with pytest.raises(ValueError, match="is not allowed"):
-        await run_shell_command("invalid_shell", "ls", allowed_directories[0])
+async def test_run_shell_command_invalid_shell(runtime_settings):
+    runtime_settings.SAFETY_MODE = "relax"
+    with pytest.raises(ValueError, match="not allowed"):
+        await run_shell_command(
+            "echo hello",
+            cwd=runtime_settings.ALLOWED_DIRECTORIES[0],
+            shell="invalid",
+        )
 
 
 @pytest.mark.asyncio
-async def test_run_shell_command_timeout(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test command timeout."""
-    settings.COMMAND_TIMEOUT = 1
-    
-    shell_name = next(iter(test_shells.keys()))
-    if os.name == 'nt':
-        command = 'timeout 10' if shell_name == 'cmd' else 'Start-Sleep 10'
-    else:
-        command = 'sleep 10'
-    
-    with pytest.raises(TimeoutError):
-        await run_shell_command(shell_name, command, allowed_directories[0])
+async def test_run_shell_command_timeout(runtime_settings):
+    runtime_settings.COMMAND_TIMEOUT = 1
+    result = await run_shell_command("sleep 2", cwd=runtime_settings.ALLOWED_DIRECTORIES[0])
+    assert result.timed_out is True
+    assert "Timed out" in result.stderr
 
 
 @pytest.mark.asyncio
-async def test_command_output_encoding(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test handling of non-ASCII command output."""
-    shell_name = next(iter(test_shells.keys()))
-    if os.name == 'nt':
-        command = 'echo ñçé' if shell_name == 'cmd' else 'Write-Output "ñçé"'
-    else:
-        command = 'echo "ñçé"'
-    
-    result = await run_shell_command(shell_name, command, allowed_directories[0])
-    
-    assert result["exit_code"] == 0
-    assert "ñçé" in result["stdout"].strip()
+async def test_trusted_command_override(runtime_settings):
+    runtime_settings.TRUSTED_COMMANDS = {
+        "trusted_echo": {
+            "command": "echo trusted",
+            "cwd": runtime_settings.ALLOWED_DIRECTORIES[0],
+            "shell": "sh",
+        }
+    }
+    result = await run_shell_command("trusted_echo", cwd="/", shell="bash")
+    assert result.exit_code == 0
+    assert "trusted" in result.stdout
+    assert result.shell == "sh"
+
+
+def test_validate_tmux_session_name():
+    assert validate_tmux_session_name("mcp_1") == "mcp_1"
+    with pytest.raises(ValueError):
+        validate_tmux_session_name("bad session name;")
 
 
 @pytest.mark.asyncio
-async def test_concurrent_commands(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test running multiple commands concurrently."""
-    shell_name = next(iter(test_shells.keys()))
-    if os.name == 'nt':
-        command = 'echo test' if shell_name == 'cmd' else 'Write-Output "test"'
-    else:
-        command = 'echo "test"'
-    
-    tasks = [
-        run_shell_command(shell_name, command, allowed_directories[0])
-        for _ in range(5)
-    ]
-    
-    results = await asyncio.gather(*tasks)
-    
-    for result in results:
-        assert result["exit_code"] == 0
-        assert "test" in result["stdout"].strip()
+async def test_timeout_kills_long_running_background_command(runtime_settings):
+    runtime_settings.COMMAND_TIMEOUT = 1
+    marker = Path(runtime_settings.ALLOWED_DIRECTORIES[0]) / "background_leak.txt"
+    command = (
+        f"(sleep 2; echo leaked > {marker.as_posix()}) & "
+        "sleep 10"
+    )
+
+    result = await run_shell_command(command, cwd=runtime_settings.ALLOWED_DIRECTORIES[0])
+    assert result.timed_out is True
+
+    await asyncio.sleep(2.5)
+    assert not marker.exists()
+    assert len(running_processes) == 0
 
 
 @pytest.mark.asyncio
-async def test_command_with_arguments(allowed_directories: List[str], test_shells: Dict[str, str]):
-    """Test command execution with arguments."""
-    shell_name = next(iter(test_shells.keys()))
-    
-    # Create test files
-    for i in range(3):
-        with open(os.path.join(allowed_directories[0], f"test{i}.txt"), "w") as f:
-            f.write(f"content{i}")
-    
-    # Test with wildcards and arguments
-    if os.name == 'nt':
-        command = 'dir /b test*.txt' if shell_name == 'cmd' else 'Get-ChildItem test*.txt | Select-Object Name'
-    else:
-        command = 'ls test*.txt'
-    
-    result = await run_shell_command(shell_name, command, allowed_directories[0])
-    
-    assert result["exit_code"] == 0
-    assert "test0.txt" in result["stdout"]
-    assert "test1.txt" in result["stdout"]
-    assert "test2.txt" in result["stdout"]
+async def test_client_disconnect_callback_cancels_process(runtime_settings):
+    async def disconnect_on_first_line(_: str) -> None:
+        raise BrokenPipeError("simulated client disconnect")
+
+    result = await run_shell_command(
+        command="for i in 1 2 3; do echo line$i; sleep 1; done",
+        cwd=runtime_settings.ALLOWED_DIRECTORIES[0],
+        on_stdout=disconnect_on_first_line,
+    )
+    assert result.cancelled is True
+    assert "Client disconnected" in result.stderr
+    assert len(running_processes) == 0

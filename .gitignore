@@ -44,6 +44,11 @@ htmlcov/
 .tox/
 .nox/
 
+
+.pytest_cache
+__pycache__
+.ruff_cache
+
 # OS
 .DS_Store
 Thumbs.db

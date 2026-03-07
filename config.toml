@@ -1,4 +1,4 @@
-
+# python -c "import toml;print( toml.load('config.toml'))"
 # ALLOWED_BASH= ["/bin/bash","/bin/sh"]
 # ALLOWED_POWERSHELL= ["powershell.exe","pwsh.exe"]
 # ALLOWED_CMD= ["cmd.exe"]
@@ -7,4 +7,24 @@ ALLOWED_DIRECTORIES = ['.']
 SAFETY_MODE = "strict"
 # SAFETY_MODE = "relax"
 
-TRUSTED_COMMANDS.uv_install = { command = "uv pip install .", shell = "powershell", cwd = "." }
+[DOCKER_CONFIG]
+config_file = "docker/docker-compose.yml"
+service = "drun1"
+
+[DOCKER_CONFIG.windows]
+work_dir = "/app/dev/repo2"
+host_root = "C:/Users/axdev/dev/repo"
+host_allow_direcotories = ["."]
+docker_allow_direcotories = ["."]
+
+
+[DOCKER_CONFIG.linux]
+work_dir = "/mnt/c/Users/axdev/dev/repo"
+host_root = "/mnt/c/Users/axdev/dev/repo"
+host_allow_direcotories = ["."]
+docker_allow_direcotories = ["."]
+
+
+[TRUSTED_COMMANDS]
+uv_install = { command = "uv pip install .", shell = "bash", cwd = "." }
+trusted_pwd = { command = "pwd", shell = "bash", cwd = "." }
