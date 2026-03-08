@@ -43,6 +43,18 @@ def _normalize_directory_list(value: list[str] | None) -> list[str]:
     return result
 
 
+def _check_docker_installed():
+    # Checks for the 'docker' executable
+    docker_path = shutil.which('docker')
+
+    if docker_path:
+        print(f"Docker is installed at: {docker_path}")
+        return True
+
+    else:
+        print("Docker is not installed or not in PATH.")
+        return False
+
 class Settings(BaseSettings):
     """Application runtime settings."""
 
@@ -57,6 +69,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     PATH: str = "/mcp"
     PLATFORM: str = "linux"
+    IS_IN_DOCKER : bool = False
 
     ALLOWED_DIRECTORIES_HOST: list[str] = Field(default_factory=list)
     ALLOWED_DIRECTORIES_DOCKER: list[str] = Field(default_factory=list)
@@ -89,6 +102,19 @@ class Settings(BaseSettings):
         if value not in {"strict", "relax"}:
             raise ValueError("SAFETY_MODE must be 'strict' or 'relax'")
         return value
+
+    @field_validator("IS_IN_DOCKER")
+    @classmethod
+    def _validate_is_in_docker(cls, value: str) -> str:
+        docker_installed = _check_docker_installed()
+        system_name = platform.system().lower()
+        if value:
+            if docker_installed:
+                raise ValueError(f"Enable IS_IN_DOCKER, docker_installed[{docker_installed}] must be [False]")
+            if not (system_name == "linux"):
+                raise ValueError(f"Enable IS_IN_DOCKER, PLATFORM[{system_name}] must be [linux]")
+        return value
+
 
     @field_validator("TRANSPORT")
     @classmethod

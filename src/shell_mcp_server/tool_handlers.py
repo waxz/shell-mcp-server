@@ -90,7 +90,7 @@ def register_tools(server: FastMCP) -> None:
         ctx: Context,
         shell: str = "bash",
     ) -> list[types.TextContent]:
-        """Inside Sandbox by default; Native only for trusted commands. Errors return `Execution failed: ...`."""
+        """Run a shell command and stream output; returns `Execution failed: ...` on errors."""
         try:
             logger.debug(
                 "Receive command: command=%s, cwd=%s, shell=%s",
@@ -117,19 +117,19 @@ def register_tools(server: FastMCP) -> None:
 
     @server.tool()
     async def greet(name: str) -> str:
-        """Native utility tool. Returns greeting text."""
+        """Return a greeting for `name`."""
         req = NameInput(name=name)
         return f"Hello, {req.name}!"
 
     @server.tool()
     async def bye(name: str) -> str:
-        """Native utility tool. Returns goodbye text."""
+        """Return a goodbye message for `name`."""
         req = NameInput(name=name)
         return f"Goodbye, {req.name}!"
 
     @server.tool()
     async def list_processes() -> list[types.TextContent]:
-        """Native utility tool. Lists tracked child processes."""
+        """List tracked child processes."""
         records = list_running_process_records()
         if not records:
             return [types.TextContent(type="text", text="No running processes")]
@@ -143,7 +143,7 @@ def register_tools(server: FastMCP) -> None:
 
     @server.tool()
     async def terminate_process(pid: int) -> list[types.TextContent]:
-        """Native utility tool. Terminates one tracked PID; returns not found when missing."""
+        """Terminate one tracked PID; returns not found when missing."""
         req = PidInput(pid=pid)
         terminated = await terminate_process_by_pid(req.pid)
         if not terminated:
@@ -152,13 +152,13 @@ def register_tools(server: FastMCP) -> None:
 
     @server.tool()
     async def terminate_all_processes_tool() -> list[types.TextContent]:
-        """Native utility tool. Terminates all tracked processes."""
+        """Terminate all tracked processes."""
         count = await terminate_all_processes()
         return [types.TextContent(type="text", text=f"Terminated {count} processes")]
 
     @server.tool(name="terminate_all_processes")
     async def terminate_all_processes_alias() -> list[types.TextContent]:
-        """Native utility alias for `terminate_all_processes_tool`."""
+        """Alias for `terminate_all_processes_tool`."""
         return await terminate_all_processes_tool()
 
     @server.tool()
@@ -169,7 +169,7 @@ def register_tools(server: FastMCP) -> None:
         session_name: str = "",
         shell: str = "bash",
     ) -> list[types.TextContent]:
-        """Inside Sandbox. Runs command in tmux; session name is validated."""
+        """Run a command in tmux; validates `session_name`."""
         req = TmuxExecuteInput(
             command=command,
             cwd=cwd,
@@ -218,7 +218,7 @@ def register_tools(server: FastMCP) -> None:
         clear_after: bool = False,
         shell: str = "bash",
     ) -> list[types.TextContent]:
-        """Inside Sandbox. Captures tmux pane output; optionally clears pane."""
+        """Capture tmux pane output; optionally clear after reading."""
         req = TmuxGetOutputInput(
             session_name=session_name,
             cwd=cwd,
@@ -248,7 +248,7 @@ def register_tools(server: FastMCP) -> None:
         cwd: str = ".",
         shell: str = "bash",
     ) -> list[types.TextContent]:
-        """Inside Sandbox. Lists active tmux sessions."""
+        """List active tmux sessions."""
         req = TmuxListInput(cwd=cwd, shell=shell)
         return await _execute_with_stream(
             command="tmux ls",
@@ -265,7 +265,7 @@ def register_tools(server: FastMCP) -> None:
         cwd: str = ".",
         shell: str = "bash",
     ) -> list[types.TextContent]:
-        """Inside Sandbox. Kills tmux session by validated name."""
+        """Kill a tmux session by validated name."""
         req = TmuxSessionInput(session_name=session_name, cwd=cwd, shell=shell)
         return await _execute_with_stream(
             command=build_tmux_kill_command(session_name=req.session_name),

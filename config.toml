@@ -6,6 +6,7 @@
 
 SAFETY_MODE = "strict"
 # SAFETY_MODE = "relax"
+IS_IN_DOCKER = true
 
 [DOCKER_CONFIG]
 config_file = "docker/docker-compose.yml"
