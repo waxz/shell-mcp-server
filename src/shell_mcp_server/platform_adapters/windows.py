@@ -79,6 +79,8 @@ def build_windows_shell_command(
                 f"if [ -d '{quoted_cwd}' ]; then cd '{quoted_cwd}'; {command}; "
                 f"else echo 'Directory {quoted_cwd} does not exist'; fi "
             )
+            wrapped_command =  f"cd '{quoted_cwd}' &&  {command}; "
+            
         logger.debug("Wrapped command: %s", wrapped_command)
         encoded_command = base64.b64encode(wrapped_command.encode("utf-8")).decode("ascii")
         safe_runner = f"echo {encoded_command} | base64 -d | bash"

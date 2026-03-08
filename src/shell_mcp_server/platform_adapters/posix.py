@@ -30,6 +30,8 @@ def build_posix_shell_command(
     else:
         new_cwd = shlex.quote(cwd)
         wrapped_command = f" if [ -d {new_cwd} ]; then cd {new_cwd}; {command}; else echo 'Directory {new_cwd} does not exist'; fi "
+        wrapped_command = f" cd {new_cwd} && {command}; "
+   
     logger.debug("wrapped_command: %s", wrapped_command)
     logger.debug(
         "build_posix_shell_command trusted=%s work_dir=%s host_root=%s",

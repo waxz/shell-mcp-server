@@ -83,7 +83,7 @@ def register_tools(server: FastMCP) -> None:
             parts.append(f"[timed out after {config.SETTINGS.COMMAND_TIMEOUT}s]")
         return [types.TextContent(type="text", text="\n\n".join(parts))]
 
-    @server.tool()
+    @server.tool
     async def execute_command(
         command: str,
         cwd: str,
@@ -115,19 +115,19 @@ def register_tools(server: FastMCP) -> None:
         except Exception as exc:
             return [types.TextContent(type="text", text=f"Execution failed: {exc}")]
 
-    @server.tool()
+    @server.tool
     async def greet(name: str) -> str:
         """Return a greeting for `name`."""
         req = NameInput(name=name)
         return f"Hello, {req.name}!"
 
-    @server.tool()
+    @server.tool
     async def bye(name: str) -> str:
         """Return a goodbye message for `name`."""
         req = NameInput(name=name)
         return f"Goodbye, {req.name}!"
 
-    @server.tool()
+    @server.tool
     async def list_processes() -> list[types.TextContent]:
         """List tracked child processes."""
         records = list_running_process_records()
@@ -141,7 +141,7 @@ def register_tools(server: FastMCP) -> None:
             )
         return [types.TextContent(type="text", text="\n".join(lines))]
 
-    @server.tool()
+    @server.tool
     async def terminate_process(pid: int) -> list[types.TextContent]:
         """Terminate one tracked PID; returns not found when missing."""
         req = PidInput(pid=pid)
@@ -150,7 +150,7 @@ def register_tools(server: FastMCP) -> None:
             return [types.TextContent(type="text", text=f"Process {req.pid} not found")]
         return [types.TextContent(type="text", text=f"Process {req.pid} terminated")]
 
-    @server.tool()
+    @server.tool
     async def terminate_all_processes_tool() -> list[types.TextContent]:
         """Terminate all tracked processes."""
         count = await terminate_all_processes()
@@ -161,7 +161,7 @@ def register_tools(server: FastMCP) -> None:
         """Alias for `terminate_all_processes_tool`."""
         return await terminate_all_processes_tool()
 
-    @server.tool()
+    @server.tool
     async def tmux_execute(
         command: str,
         cwd: str,
@@ -210,7 +210,7 @@ def register_tools(server: FastMCP) -> None:
             persistent_sandbox=True,
         )
 
-    @server.tool()
+    @server.tool
     async def tmux_get_output(
         session_name: str,
         ctx: Context,
@@ -242,7 +242,7 @@ def register_tools(server: FastMCP) -> None:
             )
         return result
 
-    @server.tool()
+    @server.tool
     async def tmux_list_session(
         ctx: Context,
         cwd: str = ".",
@@ -258,7 +258,7 @@ def register_tools(server: FastMCP) -> None:
             persistent_sandbox=True,
         )
 
-    @server.tool()
+    @server.tool
     async def tmux_kill_session(
         session_name: str,
         ctx: Context,
