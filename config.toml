@@ -3,7 +3,7 @@
 # ALLOWED_POWERSHELL= ["powershell.exe","pwsh.exe"]
 # ALLOWED_CMD= ["cmd.exe"]
 # ALLOWED_DIRECTORIES = ['.']
-
+COMMAND_TIMEOUT = 60
 SAFETY_MODE = "strict"
 # SAFETY_MODE = "relax"
 IS_IN_DOCKER = false

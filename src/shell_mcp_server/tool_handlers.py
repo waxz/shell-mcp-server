@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-
+import json
 import mcp.types as types
 from anyio import ClosedResourceError
 from fastmcp import Context, FastMCP
+from typing import Dict, List,Any
+
+from fastmcp.server.tasks import TaskConfig
 
 from . import config
 from .executor import (
@@ -70,6 +73,7 @@ def register_tools(server: FastMCP) -> None:
         except ClosedResourceError:
             return [types.TextContent(type="text", text="[client disconnected]")]
 
+
         if result.cancelled:
             return [types.TextContent(type="text", text="[client disconnected]")]
 
@@ -83,7 +87,7 @@ def register_tools(server: FastMCP) -> None:
             parts.append(f"[timed out after {config.SETTINGS.COMMAND_TIMEOUT}s]")
         return [types.TextContent(type="text", text="\n\n".join(parts))]
 
-    @server.tool
+    @server.tool(task=TaskConfig(mode="optional"))
     async def execute_command(
         command: str,
         cwd: str,
@@ -113,35 +117,39 @@ def register_tools(server: FastMCP) -> None:
                 shell=req.shell,
             )
         except Exception as exc:
-            return [types.TextContent(type="text", text=f"Execution failed: {exc}")]
+            raise exc
+            # return [types.TextContent(type="text", text=f"Execution failed: {exc}")]
 
-    @server.tool
-    async def greet(name: str) -> str:
-        """Return a greeting for `name`."""
-        req = NameInput(name=name)
-        return f"Hello, {req.name}!"
 
-    @server.tool
-    async def bye(name: str) -> str:
-        """Return a goodbye message for `name`."""
-        req = NameInput(name=name)
-        return f"Goodbye, {req.name}!"
-
-    @server.tool
-    async def list_processes() -> list[types.TextContent]:
+    @server.tool(task=TaskConfig(mode="optional"))
+    async def list_processes() -> list[dict[str, Any]] | None:
         """List tracked child processes."""
         records = list_running_process_records()
         if not records:
-            return [types.TextContent(type="text", text="No running processes")]
+            return None
+            # return [types.TextContent(type="text", text="No running processes")]
 
-        lines = ["Running processes:"]
+        # lines = ["Running processes:"]
+        pid_info_list = []
         for record in records:
-            lines.append(
-                f"  PID {record.pid}: shell={record.shell} cwd={record.cwd} command={record.command}"
+            # lines.append(
+            #     f"  PID {record.pid}: shell={record.shell} cwd={record.cwd} command={record.command}"
+            # )
+            pid_info_list.append(
+                {
+                    "PID": record.pid,
+                    "shell" : record.shell,
+                    "cwd" : record.cwd ,
+                    "command"  :  record.command,
+                }
             )
-        return [types.TextContent(type="text", text="\n".join(lines))]
 
-    @server.tool
+        resp = json.dumps(pid_info_list)
+        logging.info(f"resp:{resp}")
+        return pid_info_list
+        # return [types.TextContent(type="text", text="\n".join(lines))]
+
+    @server.tool(task=TaskConfig(mode="optional"))
     async def terminate_process(pid: int) -> list[types.TextContent]:
         """Terminate one tracked PID; returns not found when missing."""
         req = PidInput(pid=pid)
@@ -150,18 +158,14 @@ def register_tools(server: FastMCP) -> None:
             return [types.TextContent(type="text", text=f"Process {req.pid} not found")]
         return [types.TextContent(type="text", text=f"Process {req.pid} terminated")]
 
-    @server.tool
-    async def terminate_all_processes_tool() -> list[types.TextContent]:
+    @server.tool(task=TaskConfig(mode="optional"))
+    async def terminate_all_processes() -> list[types.TextContent]:
         """Terminate all tracked processes."""
         count = await terminate_all_processes()
         return [types.TextContent(type="text", text=f"Terminated {count} processes")]
 
-    @server.tool(name="terminate_all_processes")
-    async def terminate_all_processes_alias() -> list[types.TextContent]:
-        """Alias for `terminate_all_processes_tool`."""
-        return await terminate_all_processes_tool()
 
-    @server.tool
+    @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_execute(
         command: str,
         cwd: str,
@@ -210,7 +214,7 @@ def register_tools(server: FastMCP) -> None:
             persistent_sandbox=True,
         )
 
-    @server.tool
+    @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_get_output(
         session_name: str,
         ctx: Context,
@@ -242,7 +246,7 @@ def register_tools(server: FastMCP) -> None:
             )
         return result
 
-    @server.tool
+    @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_list_session(
         ctx: Context,
         cwd: str = ".",
@@ -258,7 +262,7 @@ def register_tools(server: FastMCP) -> None:
             persistent_sandbox=True,
         )
 
-    @server.tool
+    @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_kill_session(
         session_name: str,
         ctx: Context,

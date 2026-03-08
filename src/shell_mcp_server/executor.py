@@ -293,7 +293,8 @@ async def run_shell_command(
                 if cancel.is_set():
                     return
                 cleaned = line.rstrip("\r")
-                buffer.append(cleaned)
+                if cleaned:
+                    buffer.append(cleaned)
                 if not await _safe_callback(callback, cleaned):
                     return
 

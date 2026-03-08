@@ -10,8 +10,8 @@ from .execution_policy import validate_tmux_session_name
 def _sanitize_value(value: str, field_name: str) -> str:
     if "\x00" in value:
         raise ValueError(f"Invalid {field_name}: null byte is not allowed")
-    if "\n" in value or "\r" in value:
-        raise ValueError(f"Invalid {field_name}: multiline input is not allowed")
+    # if "\n" in value or "\r" in value:
+    #     raise ValueError(f"Invalid {field_name}: multiline input is not allowed")
     return value
 
 
