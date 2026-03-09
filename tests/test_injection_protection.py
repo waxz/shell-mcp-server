@@ -40,7 +40,7 @@ def test_windows_bash_adapter_escapes_single_quotes():
         shell="bash",
         shell_path="powershell.exe",
         command=cmd,
-        cwd="C:/tmp",
+        cwd=".",
     )
 
     assert built[0] == "powershell.exe"

@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings
 
 from .path_utils import is_windows_style_path, normalize_directory_value
 
+from .os_utils import check_installed
 
 def _default_shells(system_name: str) -> dict[str, str]:
     if system_name == "windows":
@@ -43,17 +44,7 @@ def _normalize_directory_list(value: list[str] | None) -> list[str]:
     return result
 
 
-def _check_docker_installed():
-    # Checks for the 'docker' executable
-    docker_path = shutil.which('docker')
 
-    if docker_path:
-        print(f"Docker is installed at: {docker_path}")
-        return True
-
-    else:
-        print("Docker is not installed or not in PATH.")
-        return False
 
 class Settings(BaseSettings):
     """Application runtime settings."""
@@ -70,6 +61,7 @@ class Settings(BaseSettings):
     PATH: str = "/mcp"
     PLATFORM: str = "linux"
     IS_IN_DOCKER : bool = False
+    IS_TMUX_INSTALLED: bool = check_installed("tmux")
 
     ALLOWED_DIRECTORIES_HOST: list[str] = Field(default_factory=list)
     ALLOWED_DIRECTORIES_DOCKER: list[str] = Field(default_factory=list)
@@ -106,7 +98,7 @@ class Settings(BaseSettings):
     @field_validator("IS_IN_DOCKER")
     @classmethod
     def _validate_is_in_docker(cls, value: str) -> str:
-        docker_installed = _check_docker_installed()
+        docker_installed = check_installed("docker")
         system_name = platform.system().lower()
         if value:
             if docker_installed:

@@ -13,7 +13,8 @@ from typing import Awaitable, Callable, Any, Dict
 
 from . import config
 from .execution_policy import resolve_request
-from .models import ExecutionResult, ProcessRecord
+from .models import ExecutionResult, ProcessRecord, ExecutionRequest
+
 from .platform_adapters import build_posix_shell_command, build_windows_shell_command
 
 logger = logging.getLogger(__name__)
@@ -141,13 +142,25 @@ async def run_shell_command(
     cwd: str,
     shell: str = "bash",
     on_stdout: Callable[[str], Awaitable[None]] | None = None,
-    on_stderr: Callable[[str], Awaitable[None]] | None = None
+    on_stderr: Callable[[str], Awaitable[None]] | None = None,
+    is_trusted: bool|None = None,
 ) -> ExecutionResult:
     """Execute command with streaming callbacks and safe lifecycle handling."""
     if config.SETTINGS is None:
         raise RuntimeError("Server settings are not initialized")
 
-    request = resolve_request(command=command, cwd=cwd, shell=shell)
+    
+    if is_trusted:
+        request:ExecutionRequest =  ExecutionRequest(
+            command = command,
+            shell = shell,
+            cwd = cwd,
+            trusted = is_trusted
+        )
+    else:
+        request:ExecutionRequest = resolve_request(command=command, cwd=cwd, shell=shell)
+
+
     # if (
     #     config.SETTINGS.PLATFORM == "linux"
     #     and request.shell == "bash"
@@ -219,8 +232,6 @@ async def run_shell_command(
         spawn_kw["start_new_session"] = True
 
     try:
-        # print(f"create_subprocess_exec shell_cmd: {shell_cmd}")
-        # print(f"create_subprocess_exec spawn_kw: {spawn_kw}") 
         process = await asyncio.create_subprocess_exec(*shell_cmd, **spawn_kw)
     except Exception as exc:
         return ExecutionResult(

@@ -17,10 +17,11 @@ def _sanitize_value(value: str, field_name: str) -> str:
 
 def build_tmux_bootstrap_command(session_name: str) -> str:
     session = shlex.quote(validate_tmux_session_name(session_name))
-    return (
-        f"tmux has-session -t {session} 2>/dev/null || "
-        f"tmux new-session -s {session} -d bash"
-    )
+    return f"tmux new-session -s {session} -d"
+    # return (
+    #     f"tmux has-session -t {session} 2>/dev/null || "
+    #     f"tmux new-session -s {session} -d bash"
+    # )
 
 
 def build_tmux_send_keys_command(session_name: str, command: str) -> str:
@@ -29,19 +30,19 @@ def build_tmux_send_keys_command(session_name: str, command: str) -> str:
     return f"tmux send-keys -t {session} {safe_command} Enter"
 
 
-def build_tmux_reset_pane_command(session_name: str) -> str:
+def build_tmux_reset_pane_command(session_name: str) -> [str]:
     """Reset pane state so captures do not include stale buffered output."""
     session = shlex.quote(validate_tmux_session_name(session_name))
-    return (
-        f"tmux send-keys -t {session} C-c Enter && "
-        f"tmux send-keys -t {session} clear Enter && "
+    return [
+        f"tmux send-keys -t {session} C-c Enter",
+        f"tmux send-keys -t {session} clear Enter",
         f"tmux clear-history -t {session}"
-    )
+    ]
 
 
 def build_tmux_capture_command(session_name: str) -> str:
     session = shlex.quote(validate_tmux_session_name(session_name))
-    return f"tmux capture-pane -t {session} -pJ"
+    return f"tmux capture-pane -t {session} -p"
 
 
 def build_tmux_clear_command(session_name: str) -> str:
