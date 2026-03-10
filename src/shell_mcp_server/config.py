@@ -78,8 +78,14 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_ENFORCE_CWD_MAP: bool = False
     UNTRUSTED_USE_DOCKER_SANDBOX: bool = False
     DOCKER_USE_DRUN_ON_LINUX: bool = True
+    API_KEYS : str|None = None
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @field_validator("API_KEYS")
+    @classmethod
+    def _validate_api_keys(cls, value: int) -> int:
+        return value
 
     @field_validator("COMMAND_TIMEOUT")
     @classmethod
@@ -205,6 +211,8 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "DOCKER_SANDBOX_WORKDIR is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
                 )
+                
+
 
         self._validate_allowed_shell_paths()
         self._validate_trusted_shell_platform_compatibility()

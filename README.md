@@ -66,11 +66,54 @@ uv pip install .
 
 ### Run
 ```bash
-shell-mcp-server -d . -t http -c ./config.toml
+
+# windows
+$ENV:API_KEYS = "sk_qqqq"
+
+# linux
+API_KEYS = "sk_qqqq"
+shell-mcp-server -d . -t http -c ./config.toml -P 8002 -p /shell
 ``` 
+
+### Run Caddy
+
+Caddyfile
+```
+http://localhost:8000 {
+    # Match /shell and everything after it
+    handle /shell* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:8002
+    }
+    # Match /fs and everything after it
+    handle /fs* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:8001
+    }
+    #
+    handle /ui* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:6274
+    }
+    handle {
+        respond "Caddy is receiving tunnel traffic on port 8000."
+    }
+}
+
+```
+run Caddy
+```
+caddy run --config Caddyfile
+```
+
 
 ### Inspector
 ```bash
+
+# winodws
+$ENV:DANGEROUSLY_OMIT_AUTH="true"
+#or linux
+$DANGEROUSLY_OMIT_AUTH="true"
 npx @modelcontextprotocol/inspector
 ```
 

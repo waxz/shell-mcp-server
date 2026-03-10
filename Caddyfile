@@ -1,0 +1,20 @@
+http://localhost:8000 {
+    # Match /shell and everything after it
+    handle /shell* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:8002
+    }
+    # Match /fs and everything after it
+    handle /fs* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:8001
+    }
+    #
+    handle /ui* {
+        # Upstream must ONLY be the address, no path or trailing slash
+        reverse_proxy localhost:6274
+    }
+    handle {
+        respond "Caddy is receiving tunnel traffic on port 8000."
+    }
+}
