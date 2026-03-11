@@ -1,0 +1,38 @@
+name: cross-platform
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          # Automatically creates and adds .venv to PATH
+          activate-environment: true
+          enable-cache: true
+
+      - name: Install project
+        run: |
+          uv pip install  .
+
+      - name: Run MCP direct test runner
+        run: python test.py --report report-${{ matrix.os }}.txt
