@@ -49,6 +49,7 @@ jobs:
         run: |
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $GITHUB_ENV
           source ./docker/setup-profile-env.sh
+          export DOCKER_SHELL_COMPOSE_FILE_OVERRIDE="${{ github.workspace }}/docker/docker-compose.yml"
           python test.py --report report-${{ matrix.os }}.txt
 
       - name: Set up Docker Compose environment (Windows)
@@ -57,6 +58,7 @@ jobs:
         run: |
           # FIX: Cleaner variable injection for Windows
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}\docker\docker-compose.yml" >> $env:GITHUB_ENV
+          $Env:DOCKER_SHELL_COMPOSE_FILE_OVERRIDE="${{ github.workspace }}\docker\docker-compose.yml"
           . ./docker/setup-profile-env.ps1
           python test.py --report report-${{ matrix.os }}.txt
 
