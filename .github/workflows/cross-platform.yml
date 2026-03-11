@@ -32,6 +32,10 @@ jobs:
           activate-environment: true
           enable-cache: true
 
+      - name: Install project
+        run: |
+          uv pip install .
+
       - name: Setup Docker Engine
         uses: docker/setup-docker-action@v4
         with:
@@ -44,9 +48,8 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $GITHUB_ENV
-          
-          chmod +x ./docker/setup-profile.sh
-          ./docker/setup-profile.sh
+          source ./docker/setup-profile-env.sh
+          python test.py --report report-${{ matrix.os }}.txt
 
       - name: Set up Docker Compose environment (Windows)
         if: matrix.os == 'windows-latest'
@@ -54,22 +57,6 @@ jobs:
         run: |
           # FIX: Cleaner variable injection for Windows
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}\docker\docker-compose.yml" >> $env:GITHUB_ENV
-
-          powershell -File ./docker/setup-profile.ps1
-
-
-      - name: Install project
-        run: |
-          uv pip install .
-
-      - name: Run Test with Docker Function
-        run: |
-          # On Linux, you must source the script again to get the functions
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            source ./docker/setup-profile-env.sh
-          else
-            # On Windows (pwsh), dot-source to load the functions
-            . ./docker/setup-profile-env.ps1
-          fi
-            drun python test.py --report report-${{ matrix.os }}.txt
+          . ./docker/setup-profile-env.ps1
+          python test.py --report report-${{ matrix.os }}.txt
 
