@@ -59,8 +59,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # FIX: Cleaner variable injection for Windows
+            # Set environment variable in current session AND for future steps
+          $env:DOCKER_SHELL_COMPOSE_FILE_OVERRIDE = "${{ github.workspace }}/docker/docker-compose.yml"
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $env:GITHUB_ENV
+          
           . ${{ github.workspace }}/docker/setup-profile-env.ps1
           drun pwd
           drun_rm
