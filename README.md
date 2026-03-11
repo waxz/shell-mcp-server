@@ -75,30 +75,44 @@ API_KEYS = "sk_qqqq"
 shell-mcp-server -d . -t http -c ./config.toml -P 8002 -p /shell
 ``` 
 
+### tunnel
+
+```
+# win11
+New-NetFirewallRule -DisplayName "Allow Cloudflared Outbound" -Direction Outbound -Program "C:\Users\axdev\.local\bin\cloudflared.exe" -Action Allow
+
+```
+
+```
+cloudflared tunnel --url http://localhost:8000
+```
+
 ### Run Caddy
 
 Caddyfile
 ```
-http://localhost:8000 {
-    # Match /shell and everything after it
-    handle /shell* {
-        # Upstream must ONLY be the address, no path or trailing slash
-        reverse_proxy localhost:8002
-    }
-    # Match /fs and everything after it
-    handle /fs* {
-        # Upstream must ONLY be the address, no path or trailing slash
-        reverse_proxy localhost:8001
-    }
-    #
-    handle /ui* {
-        # Upstream must ONLY be the address, no path or trailing slash
-        reverse_proxy localhost:6274
-    }
-    handle {
-        respond "Caddy is receiving tunnel traffic on port 8000."
-    }
+:8000 {
+	# Match /shell and everything after it
+	handle /shell* {
+		# Upstream must ONLY be the address, no path or trailing slash
+		reverse_proxy localhost:8002
+	}
+	# Match /fs and everything after it
+	handle /fs* {
+		# Upstream must ONLY be the address, no path or trailing slash
+		reverse_proxy localhost:8001
+	}
+	#
+	handle /hello* {
+		# Upstream must ONLY be the address, no path or trailing slash
+		#reverse_proxy localhost:6274
+		respond "Caddy is receiving tunnel traffic on port 8000."
+	}
+	handle {
+		reverse_proxy localhost:6274
+	}
 }
+
 
 ```
 run Caddy
@@ -112,8 +126,11 @@ caddy run --config Caddyfile
 
 # winodws
 $ENV:DANGEROUSLY_OMIT_AUTH="true"
+$ENV:HOST = "0.0.0.0"
 #or linux
 $DANGEROUSLY_OMIT_AUTH="true"
+HOST = "0.0.0.0"
+
 npx @modelcontextprotocol/inspector
 ```
 

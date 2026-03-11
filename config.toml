@@ -3,13 +3,13 @@
 # ALLOWED_POWERSHELL= ["powershell.exe","pwsh.exe"]
 # ALLOWED_CMD= ["cmd.exe"]
 # ALLOWED_DIRECTORIES = ['.']
-COMMAND_TIMEOUT = 60
+COMMAND_TIMEOUT = 30
 SAFETY_MODE = "strict"
 # SAFETY_MODE = "relax"
 IS_IN_DOCKER = false
 HOST = "0.0.0.0"
-PATH = "/mcp"
-PORT = 8000
+PATH = "/shell"
+PORT = 8002
 # API_KEYS = "sk_1234"
 [DOCKER_CONFIG]
 config_file = "docker/docker-compose.yml"
@@ -17,14 +17,17 @@ service = "drun1"
 
 [DOCKER_CONFIG.windows]
 work_dir = "/app/dev/repo2"
-host_root = "C:/Users/axdev/dev/repo"
+# host_root = "C:/Users/axdev/dev/repo"
+host_root = "."
 allow_direcotories_host = ["."]
 allow_direcotories_docker = [".", "/tmp"]
 
 
 [DOCKER_CONFIG.linux]
 work_dir = "/mnt/c/Users/axdev/dev/repo2"
-host_root = "/mnt/c/Users/axdev/dev/repo"
+# host_root = "/mnt/c/Users/axdev/dev/repo"
+host_root = "."
+
 allow_direcotories_host = ["."]
 allow_direcotories_docker = [".", "/tmp"]
 

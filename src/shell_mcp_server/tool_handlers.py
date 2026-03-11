@@ -8,7 +8,7 @@ import json
 import mcp.types as types
 from anyio import ClosedResourceError
 from fastmcp import Context, FastMCP
-from typing import Dict, List,Any
+from typing import Dict, List, Any
 
 
 from fastmcp.server.tasks import TaskConfig
@@ -17,11 +17,13 @@ from . import config
 from .executor import (
     list_running_process_records,
     run_shell_command,
-    terminate_all_processes,
+    terminate_all_processes as _terminate_all_processes_impl,
     terminate_process_by_pid,
 )
 from .models import (
-    ExecutionResult, ProcessRecord, ExecutionRequest,
+    ExecutionResult,
+    ProcessRecord,
+    ExecutionRequest,
     ExecuteCommandInput,
     NameInput,
     PidInput,
@@ -39,7 +41,7 @@ from .tmux_commands import (
     build_tmux_send_keys_command,
 )
 from .execution_policy import resolve_request
-from .mcp_types_utils import create_shell_result,create_str_result
+from .mcp_types_utils import create_shell_result, create_str_result
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ def register_tools(server: FastMCP) -> None:
         cwd: str,
         ctx: Context,
         shell: str,
-        is_trusted: bool|None = None,
+        is_trusted: bool | None = None,
     ) -> ExecutionResult:
         async def _on_stdout(line: str) -> None:
             try:
@@ -73,12 +75,11 @@ def register_tools(server: FastMCP) -> None:
                 shell=shell,
                 on_stdout=_on_stdout,
                 on_stderr=_on_stderr,
-                is_trusted=is_trusted
+                is_trusted=is_trusted,
             )
         except ClosedResourceError:
             return ExecutionResult(stderr="[client disconnected]")
             # return [types.TextContent(type="text", text="[client disconnected]")]
-
 
         if result.cancelled:
             return ExecutionResult(stderr="[client disconnected]")
@@ -120,16 +121,19 @@ def register_tools(server: FastMCP) -> None:
                 req.shell,
             )
 
-            return [create_shell_result(await _execute_with_stream(
-                command=req.command,
-                cwd=req.cwd,
-                ctx=ctx,
-                shell=req.shell,
-            ))]
+            return [
+                create_shell_result(
+                    await _execute_with_stream(
+                        command=req.command,
+                        cwd=req.cwd,
+                        ctx=ctx,
+                        shell=req.shell,
+                    )
+                )
+            ]
         except Exception as exc:
             raise exc
             # return [types.TextContent(type="text", text=f"Execution failed: {exc}")]
-
 
     @server.tool(task=TaskConfig(mode="optional"))
     async def list_processes() -> list[dict[str, Any]] | None:
@@ -148,9 +152,9 @@ def register_tools(server: FastMCP) -> None:
             pid_info_list.append(
                 {
                     "PID": record.pid,
-                    "shell" : record.shell,
-                    "cwd" : record.cwd ,
-                    "command"  :  record.command,
+                    "shell": record.shell,
+                    "cwd": record.cwd,
+                    "command": record.command,
                 }
             )
 
@@ -171,15 +175,14 @@ def register_tools(server: FastMCP) -> None:
     @server.tool(task=TaskConfig(mode="optional"))
     async def terminate_all_processes() -> list[types.TextContent]:
         """Terminate all tracked processes."""
-        count = await terminate_all_processes()
+        count = await _terminate_all_processes_impl()
         return [types.TextContent(type="text", text=f"Terminated {count} processes")]
-
 
     @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_execute(
         command: str,
         ctx: Context,
-        # session_name: str = "",
+        session_name: str = "",
         shell: str = "bash",
     ) -> List[dict[str, str] | types.TextContent]:
         """Run a command in tmux; validates `session_name`."""
@@ -191,34 +194,34 @@ def register_tools(server: FastMCP) -> None:
         if is_trusted and not config.SETTINGS.IS_TMUX_INSTALLED:
             return [types.TextContent(type="text", text=f"Tmux is not installed")]
 
+        if not session_name:
+            session_name = f"{uuid.uuid4().hex[:8]}"
+
+        if is_trusted:
+            session_name = f"native_mcp_{session_name}"
 
         req = TmuxExecuteInput(
             command=request.command,
             cwd=request.cwd,
-            session_name="",
+            session_name=session_name,
             shell=request.shell,
         )
-        if is_trusted:
-            req.session_name = f"native_mcp_{uuid.uuid4().hex[:8]}"
-        else:
-            req.session_name = f"sadbox_mcp_{uuid.uuid4().hex[:8]}"
-
 
         await _execute_with_stream(
             command=build_tmux_bootstrap_command(session_name=req.session_name),
             cwd=req.cwd,
             ctx=ctx,
             shell=req.shell,
-            is_trusted=is_trusted
+            is_trusted=is_trusted,
         )
         tmux_command = build_tmux_reset_pane_command(session_name=req.session_name)
-        for c in  tmux_command:
+        for c in tmux_command:
             await _execute_with_stream(
                 command=c,
                 cwd=req.cwd,
                 ctx=ctx,
                 shell=req.shell,
-                is_trusted=request.trusted
+                is_trusted=request.trusted,
             )
         await _execute_with_stream(
             command=build_tmux_send_keys_command(
@@ -228,24 +231,23 @@ def register_tools(server: FastMCP) -> None:
             cwd=req.cwd,
             ctx=ctx,
             shell=req.shell,
-            is_trusted=is_trusted
+            is_trusted=is_trusted,
         )
-        
-        resp = [
-            {
-                "session_name" : req.session_name
-            }
+
+        resp = [{"session_name": req.session_name}]
+        output = [
+            create_shell_result(
+                await _execute_with_stream(
+                    command=build_tmux_capture_command(session_name=req.session_name),
+                    cwd=req.cwd,
+                    ctx=ctx,
+                    shell=req.shell,
+                    is_trusted=is_trusted,
+                )
+            )
         ]
-        output =  [create_shell_result(await _execute_with_stream(
-            command=build_tmux_capture_command(session_name=req.session_name),
-            cwd=req.cwd,
-            ctx=ctx,
-            shell=req.shell,
-            is_trusted=is_trusted
-        ))]
         resp.extend(output)
         return resp
-
 
     @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_get_output(
@@ -255,31 +257,35 @@ def register_tools(server: FastMCP) -> None:
         shell: str = "bash",
     ) -> list[types.TextContent]:
         """Capture tmux pane output; optionally clear after reading."""
-        
+
         cwd: str = "."
         is_trusted = session_name.startswith("native_mcp_")
         if is_trusted and not config.SETTINGS.IS_TMUX_INSTALLED:
             return [types.TextContent(type="text", text=f"Tmux is not installed")]
-        
+
         if is_trusted:
             cwd = config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT
         else:
             cwd = config.SETTINGS.DOCKER_SANDBOX_WORKDIR
-        
-        result = [create_shell_result(await _execute_with_stream(
-            command=build_tmux_capture_command(session_name=session_name),
-            cwd=cwd,
-            ctx=ctx,
-            shell=shell,
-            is_trusted=is_trusted
-        ))]
+
+        result = [
+            create_shell_result(
+                await _execute_with_stream(
+                    command=build_tmux_capture_command(session_name=session_name),
+                    cwd=cwd,
+                    ctx=ctx,
+                    shell=shell,
+                    is_trusted=is_trusted,
+                )
+            )
+        ]
         if clear_after:
             await _execute_with_stream(
                 command=build_tmux_clear_command(session_name=session_name),
                 cwd=cwd,
                 ctx=ctx,
                 shell=shell,
-                is_trusted=is_trusted
+                is_trusted=is_trusted,
             )
 
         return result
@@ -290,32 +296,24 @@ def register_tools(server: FastMCP) -> None:
         shell: str = "bash",
     ) -> list[str]:
         """List active tmux sessions."""
-                    
+
         cwd = config.SETTINGS.DOCKER_SANDBOX_WORKDIR
 
         stdout = ""
         resp = await _execute_with_stream(
-            command="tmux ls",
-            cwd=cwd,
-            ctx=ctx,
-            shell=shell,
-            is_trusted=False
+            command="tmux ls", cwd=cwd, ctx=ctx, shell=shell, is_trusted=False
         )
         session_list = []
         if resp.stdout:
             session = resp.stdout.split("\n")
             for s in session:
                 session_list.append(s.split(":")[0])
- 
+
         if config.SETTINGS.IS_TMUX_INSTALLED:
             cwd = config.SETTINGS.DOCKER_SANDBOX_HOST_ROOT
-        
+
             resp = await _execute_with_stream(
-                command="tmux ls",
-                cwd=cwd,
-                ctx=ctx,
-                shell=shell,
-                is_trusted=True
+                command="tmux ls", cwd=cwd, ctx=ctx, shell=shell, is_trusted=True
             )
             if resp.stdout:
                 session = resp.stdout.split("\n")
@@ -323,11 +321,10 @@ def register_tools(server: FastMCP) -> None:
                     session_list.append(s.split(":")[0])
         return session_list
 
-
     @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_send_keys(
         session_name: str,
-        keys : str,
+        keys: str,
         ctx: Context,
         shell: str = "bash",
     ) -> list[types.TextContent]:
@@ -340,13 +337,14 @@ def register_tools(server: FastMCP) -> None:
             return [types.TextContent(type="text", text=f"Tmux is not installed")]
 
         return await _execute_with_stream(
-            command=build_tmux_send_keys_command(session_name=req.session_name,command=keys),
+            command=build_tmux_send_keys_command(
+                session_name=req.session_name, command=keys
+            ),
             cwd=req.cwd,
             ctx=ctx,
             shell=req.shell,
-            is_trusted=is_trusted
+            is_trusted=is_trusted,
         )
-
 
     @server.tool(task=TaskConfig(mode="optional"))
     async def tmux_kill_session(
@@ -355,7 +353,7 @@ def register_tools(server: FastMCP) -> None:
         shell: str = "bash",
     ) -> list[types.TextContent]:
         """Kill a tmux session by validated name."""
-        
+
         cwd: str = "."
         req = TmuxSessionInput(session_name=session_name, cwd=cwd, shell=shell)
         is_trusted = session_name.startswith("native_mcp_")
@@ -367,5 +365,5 @@ def register_tools(server: FastMCP) -> None:
             cwd=req.cwd,
             ctx=ctx,
             shell=req.shell,
-            is_trusted=is_trusted
+            is_trusted=is_trusted,
         )

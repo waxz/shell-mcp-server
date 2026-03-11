@@ -32,6 +32,7 @@ class Scenario:
     args: dict[str, Any]
     expect_error: bool = False
     must_contain: str | None = None
+    callback : Any | None = None
 
 
 @dataclass
@@ -74,16 +75,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_client(transport: str, url: str) -> Client:
-    if transport == "http":
-        return Client(url)
+def build_client(args) -> Client:
+
+    transport = args.transport
+    url = args.url
+
 
     from shell_mcp_server.server import build_server
+    from shell_mcp_server.mcp_utils import  parse_args
+    from shell_mcp_server import config
+
 
     old_argv = sys.argv[:]
     try:
         sys.argv = [sys.argv[0]]
-        server = build_server()
+        # server = build_server()
+        args, shells, shells_from_cli = parse_args()
+
+        config.SETTINGS = config.Settings.from_runtime(args, shells, shells_from_cli)
+
+        server = build_server(config.SETTINGS)
     finally:
         sys.argv = old_argv
     return Client(server)
@@ -147,6 +158,11 @@ async def call_tool(client: Client, scenario: Scenario) -> ScenarioResult:
     try:
         result = await client.call_tool(scenario.tool, scenario.args)
         output = extract_text(result)
+        print(f"OUTPUT>>>>>\n{output}\n>>>>",)
+
+        if scenario.callback:
+            scenario.callback(result)
+
         if scenario.expect_error:
             if _looks_like_error_output(output):
                 print(f"EXPECTED ERROR: {output}")
@@ -398,11 +414,14 @@ uv pip install -r "$proj/requirements.txt"
 python3 "$proj/main.py"
 """.replace("\r\n", "\n").strip()
 
+tmux_session = {}
+
+
 async def run_scenarios(args: argparse.Namespace) -> int:
-    client = build_client(args.transport, args.url)
+    client = build_client(args)
+    # f = lambda x : print(f"callback: >>>>\n {x} \n>>>> done")
     scenarios = [
-        Scenario("greet", {"name": "Test"}),
-        Scenario("bye", {"name": "Test"}),
+        
         Scenario(
             "execute_command",
             {
@@ -410,6 +429,7 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                 "cwd": ".",
                 "shell": args.shell,
             },
+            # callback = f
         ),
         Scenario(
             "execute_command",
@@ -613,35 +633,39 @@ async def run_scenarios(args: argparse.Namespace) -> int:
         #     tmux_available = False
 
         if tmux_available:
-            session = "mcp_test_py"
+            session_name = "mcp_test"
+            def get_session_name(x):
+                # global tmux_session
+                tmux_session["session_name"] = json.loads(getattr(getattr(x,"content")[0], "text"))["session_name"] 
+                print("tmux_session:",tmux_session)
             scenarios.extend(
                 [
                     Scenario(
                         "tmux_execute",
                         {
                             "command": "pwd && echo tmux at 1 2 3 > log.txt && cat log.txt",
-                            "cwd": args.cwd,
-                            "session_name": session,
                             "shell": args.shell,
+                        "session_name": session_name,
+
                         },
+
+                        callback = get_session_name
                     ),
                     Scenario(
                         "tmux_get_output",
                         {
-                            "session_name": session,
-                            "cwd": args.cwd,
+                            "session_name": session_name,
                             "shell": args.shell,
                         },
                     ),
                     Scenario(
                         "tmux_list_session",
-                        {"cwd": args.cwd, "shell": args.shell},
+                        {"shell": args.shell},
                     ),
                     Scenario(
                         "tmux_kill_session",
                         {
-                            "session_name": session,
-                            "cwd": args.cwd,
+                            "session_name": session_name,
                             "shell": args.shell,
                         },
                     ),
@@ -649,14 +673,13 @@ async def run_scenarios(args: argparse.Namespace) -> int:
                         "tmux_kill_session",
                         {
                             "session_name": "mcp_bad;rm-rf",
-                            "cwd": args.cwd,
                             "shell": args.shell,
                         },
                         expect_error=True,
                     ),
                     Scenario(
                         "tmux_list_session",
-                        {"cwd": args.cwd, "shell": args.shell},
+                        {"shell": args.shell},
                     ),
 
                 ]
