@@ -61,9 +61,9 @@ jobs:
         run: |
           # FIX: Cleaner variable injection for Windows
           echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $env:GITHUB_ENV
-          '& . ${{ github.workspace }}/docker/setup-profile-env.ps1'
+          & . ${{ github.workspace }}/docker/setup-profile-env.ps1
           drun pwd
           drun_rm
-          
+
           python test.py --report report-${{ matrix.os }}.txt
 
