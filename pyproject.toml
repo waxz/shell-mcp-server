@@ -12,9 +12,20 @@ dependencies = [
     "toml>=0.10.0",
 ]
 
+# [tool.hatch.build.targets.wheel]
+# packages = ["shell_mcp_server"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config.toml" = "shell_mcp_server/config.toml"
+"README.md" = "shell_mcp_server/README.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/config.toml", "README.md"]
+
+
 [[project.authors]]
-name = "blazickjp"
-email = "joe.blazick@yahoo.com"
+name = "waxz1992"
+email = "waxz1992@gmail.com"
 
 [build-system]
 requires = ["hatchling"]

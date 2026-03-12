@@ -31,6 +31,11 @@ https://github.com/waxz/docker-files
 ### Compile
 ```bash
 uv pip install . 
+uv build --wheel
+
+uv pip uninstall 
+
+uv pip install dist\shell_mcp_server-0.1.3-py3-none-any.whl
 ```
 
 ### Run

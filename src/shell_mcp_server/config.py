@@ -8,6 +8,10 @@ import shutil
 from argparse import Namespace
 from pathlib import Path
 from typing import Any, Dict
+import importlib.resources
+
+CONFIG_FILE_PATH = str(importlib.resources.files("shell_mcp_server").joinpath("config.toml"))
+
 
 import toml
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -283,6 +287,11 @@ class Settings(BaseSettings):
             "DOCKER_CONFIG": {},
             "DOCKER_SHELL_COMPOSE_FILE": None,
         }
+
+        config_path = Path(CONFIG_FILE_PATH)
+        if config_path.exists():
+            file_config = toml.load(config_path)
+            merged.update(file_config)
 
         config_path = Path(getattr(args, "config", "config.toml") or "config.toml")
         if config_path.exists():
