@@ -36,18 +36,18 @@ jobs:
         run: |
           uv pip install .
 
-      - name: Setup Docker Engine
-        uses: docker/setup-docker-action@v4
-        with:
-          daemon-config: |
-            {
-              "debug": true
-            }
+      # - name: Setup Docker Engine
+      #   uses: docker/setup-docker-action@v4
+      #   with:
+      #     daemon-config: |
+      #       {
+      #         "debug": true
+      #       }
 
       - name: Set up Docker Compose environment (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $GITHUB_ENV
+          # echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $GITHUB_ENV
           export DOCKER_SHELL_COMPOSE_FILE_OVERRIDE="${{ github.workspace }}/docker/docker-compose.yml"
           source ./docker/start-docker.sh
           drun pwd
@@ -61,9 +61,9 @@ jobs:
         run: |
           # Set environment variable in current session AND for future steps
           $env:DOCKER_SHELL_COMPOSE_FILE_OVERRIDE = "${{ github.workspace }}/docker/docker-compose.yml"
-          echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $env:GITHUB_ENV
+          # echo "DOCKER_SHELL_COMPOSE_FILE_OVERRIDE=${{ github.workspace }}/docker/docker-compose.yml" >> $env:GITHUB_ENV
           
-          . ${{ github.workspace }}/docker/start-docker.ps1
+          . ./docker/start-docker.ps1
           drun pwd
           drun_rm
 
