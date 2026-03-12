@@ -25,37 +25,6 @@
 ### create docker sanbox on windows
 https://github.com/waxz/docker-files
 
-- create powershell profile
-
-```
-
-$Env:DOCKER_SHELL_CONFIG = "$HOME\programs\docker\docker-compose.yml"
-
-$Env:DOCKER_SHELL_SERVICE = "drun"
-
-function drun {
-    if (Test-Path $Env:DOCKER_SHELL_CONFIG) {
-        # 1. Ensure the container is running; redirect all output to null to hide logs
-        docker compose -f "$Env:DOCKER_SHELL_CONFIG" up --quiet-pull --remove-orphans -d $Env:DOCKER_SHELL_SERVICE > $null 2>&1
-
-        # 2. Exec into the persistent container
-       
-
-        if ($args.Count -eq 0) {
-            docker compose -f "$Env:DOCKER_SHELL_CONFIG" exec $Env:DOCKER_SHELL_SERVICE /usr/local/bin/entrypoint.sh
-        } else {
-            # Joining args ensures multi-word commands are passed correctly to bash
-            #$cmd = $args -join " "
-            $cmd = $args -join ' '
-            docker compose -f "$Env:DOCKER_SHELL_CONFIG" exec $Env:DOCKER_SHELL_SERVICE bash -c "$args"
-        }
-    } else {
-        Write-Error "Could not find config at: $Env:DOCKER_SHELL_CONFIG"
-    }
-}
-
-```
-
 
 
 
@@ -128,10 +97,13 @@ caddy run --config Caddyfile
 $ENV:DANGEROUSLY_OMIT_AUTH="true"
 $ENV:HOST = "0.0.0.0"
 #or linux
-$DANGEROUSLY_OMIT_AUTH="true"
+DANGEROUSLY_OMIT_AUTH="true"
 HOST = "0.0.0.0"
 
-npx @modelcontextprotocol/inspector
+npm install -g @modelcontextprotocol/inspector
+
+DANGEROUSLY_OMIT_AUTH="true" HOST="0.0.0.0" mcp-inspector
+
 ```
 
 ### Docker

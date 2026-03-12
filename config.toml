@@ -10,28 +10,30 @@ IS_IN_DOCKER = false
 HOST = "0.0.0.0"
 PATH = "/shell"
 PORT = 8002
-# API_KEYS = "sk_1234"
+# API_KEYS = "sk-1234"
+API_KEYS = "sk-123456"
 [DOCKER_CONFIG]
 config_file = "docker/docker-compose.yml"
 service = "drun1"
 
 [DOCKER_CONFIG.windows]
-work_dir = "/app/dev/repo2"
-# host_root = "C:/Users/axdev/dev/repo"
-host_root = "."
+work_dir = "/app/dev/repo"
+host_root = "C:/Users/axdev/dev/repo"
+# host_root = "."
 allow_direcotories_host = ["."]
 allow_direcotories_docker = [".", "/tmp"]
 
 
 [DOCKER_CONFIG.linux]
-work_dir = "/mnt/c/Users/axdev/dev/repo2"
-# host_root = "/mnt/c/Users/axdev/dev/repo"
-host_root = "."
+# work_dir = "/mnt/c/Users/axdev/dev/repo2"
+work_dir = "/app/dev/repo"
+
+host_root = "/mnt/c/Users/axdev/dev/repo"
+# host_root = "."
 
 allow_direcotories_host = ["."]
 allow_direcotories_docker = [".", "/tmp"]
 
 
 [TRUSTED_COMMANDS]
-uv_install = { command = "uv pip install .", shell = "bash", cwd = "." }
-trusted_pwd = { command = "pwd", shell = "bash", cwd = "." }
+trusted_pwd = { command = "pwd", shell = "bash", cwd = "./data" }

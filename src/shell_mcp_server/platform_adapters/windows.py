@@ -48,6 +48,7 @@ def build_windows_shell_command(
 ) -> list[str]:
     """Build a Windows shell invocation argument list."""
 
+
     logger.debug(
         "build_windows_shell_command shell=%s trusted=%s work_dir=%s host_root=%s cwd=%s",
         shell,
@@ -62,15 +63,9 @@ def build_windows_shell_command(
     if shell == "cmd":
         return [shell_path, "/c", command]
 
-    sandbox_cwd = cwd
-    if shell == "bash" and not trusted:
-        sandbox_cwd = _map_host_cwd_to_sandbox(
-            cwd=cwd,
-            host_root=host_root,
-            work_dir=work_dir,
-        )
 
-    quoted_cwd = _ps_single_quoted(sandbox_cwd)
+    quoted_cwd = _ps_single_quoted(cwd)
+
     if shell == "bash" and not trusted:
         if quoted_cwd in {"", "."}:
             wrapped_command = command
@@ -84,8 +79,8 @@ def build_windows_shell_command(
         logger.debug("Wrapped command: %s", wrapped_command)
         encoded_command = base64.b64encode(wrapped_command.encode("utf-8")).decode("ascii")
         safe_runner = f"echo {encoded_command} | base64 -d | bash"
-        quoted_host_root = _ps_single_quoted(host_root or cwd)
-        quoted_work_dir = _ps_single_quoted(work_dir or sandbox_cwd)
+        quoted_host_root = _ps_single_quoted(host_root)
+        quoted_work_dir = _ps_single_quoted(work_dir)
 
         final_command = f"""
                 $ENV:DOCKER_SANDBOX_HOST_ROOT_OVERRIDE="{quoted_host_root}";

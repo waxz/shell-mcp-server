@@ -434,6 +434,16 @@ async def run_scenarios(args: argparse.Namespace) -> int:
         Scenario(
             "execute_command",
             {
+                "command": "pwd",
+                "cwd": "./data",
+                "shell": args.shell,
+            },
+            
+            must_contain="data",
+        ),
+        Scenario(
+            "execute_command",
+            {
                 "command": "trusted_pwd",
                 "cwd": ".",
                 "shell": args.shell,
