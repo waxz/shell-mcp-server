@@ -20,6 +20,7 @@ jobs:
       - name: Clone docker-files repo
         run: |
           git clone https://github.com/waxz/docker-files.git docker
+          rm docker/Dockerfile
           mv docker/Dockerfile.drun docker/Dockerfile
 
       - name: Set up Python
