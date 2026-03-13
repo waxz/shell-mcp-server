@@ -23,36 +23,22 @@ from .models import (
 
 from .tool_handlers import register_tools
 
+def extract_auth():
+    headers = get_http_headers()
 
-def parse_args() -> tuple[argparse.Namespace, dict[str, str], bool]:
-    """Parse CLI args and optional shell overrides."""
-    parser = argparse.ArgumentParser(description="MCP Server")
-    parser.add_argument("-d", "--directories", nargs="+", help="Allowed directories")
-    parser.add_argument(
-        "--shell",
-        action="append",
-        nargs=2,
-        metavar=("name", "path"),
-        help="Shell mapping (name path)",
-    )
+    # 1. Try Authorization header (Bearer token)
+    auth = headers.get("Authorization") or headers.get("authorization")
+    if auth:
+        parts = auth.split()
+        # Returns the second part if "Bearer <key>", otherwise returns the whole string
+        return parts[1] if len(parts) > 1 and parts[0].lower() in ["bearer", "bear"] else parts[0]
 
-    parser.add_argument(
-        "-t",
-        "--transport",
-        type=str,
-        choices=["stdio", "http"],
-        default=None,
-        help="Server transport override",
-    )
-    parser.add_argument("-H", "--host", type=str, default=None)
-    parser.add_argument("-P", "--port", type=int, default=None)
-    parser.add_argument("-p", "--path", type=str, default=None)
-    parser.add_argument("-c", "--config", type=str, default="config.toml")
+    # 2. Fallback to x-api-key
+    x_api_key = headers.get("x-api-key") or headers.get("X-API-Key")
+    if x_api_key:
+        return x_api_key.strip()
 
-    args = parser.parse_args()
-    shells_from_cli = bool(args.shell)
-    shells = {name: path for name, path in (args.shell or [])}
-    return args, shells, shells_from_cli
+    return None
 
 
 class ApiKeyAuth(Middleware):
@@ -61,7 +47,6 @@ class ApiKeyAuth(Middleware):
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         tool_name = context.message.name
-
          
         # if self.protected_tools and tool_name not in self.protected_tools:
         #     return await call_next(context)
@@ -69,8 +54,7 @@ class ApiKeyAuth(Middleware):
         headers = get_http_headers()
 
 
-        # Authentication may be stripped by reverse proxy, so check both cases
-        api_key = headers.get("X-Api-Key") or headers.get("x-api-key") or None
+        api_key = extract_auth()
         
         if api_key == self.valid_keys:
             return await call_next(context)
