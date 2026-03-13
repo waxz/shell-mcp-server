@@ -20,7 +20,7 @@ service = "drun1"
 work_dir = "/app/dev/repo"
 host_root = "C:/Users/axdev/dev/repo"
 # host_root = "."
-allow_direcotories_host = ["."]
+allow_direcotories_host = [".", "C:/Users/axdev/dev/Openness_examples_python"]
 allow_direcotories_docker = [".", "/tmp"]
 
 
@@ -35,5 +35,17 @@ allow_direcotories_host = ["."]
 allow_direcotories_docker = [".", "/tmp"]
 
 
-[TRUSTED_COMMANDS]
-trusted_pwd = { command = "pwd", shell = "bash", cwd = "./data" }
+[TRUSTED_COMMANDS.t_pwd]
+command = "pwd"
+shell = "bash"
+cwd = "./data"
+description = "run pwd"
+
+[TRUSTED_COMMANDS.t_ax]
+command = """
+pwd
+( ../../.venv/Scripts/activate -or $true ) -or ( python test.py )
+"""
+shell = "bash"
+cwd = "C:/Users/axdev/dev/Openness_examples_python"
+description = "run ax build"

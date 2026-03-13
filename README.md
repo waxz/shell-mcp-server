@@ -33,7 +33,7 @@ https://github.com/waxz/docker-files
 uv pip install . 
 uv build --wheel
 
-uv pip uninstall 
+uv pip uninstall shell-mcp-server
 
 uv pip install dist\shell_mcp_server-0.1.3-py3-none-any.whl
 ```
@@ -109,6 +109,37 @@ npm install -g @modelcontextprotocol/inspector
 
 DANGEROUSLY_OMIT_AUTH="true" HOST="0.0.0.0" mcp-inspector
 
+```
+
+### OpenCode
+https://opencode.ai/docs/zh-cn/mcp-servers/#oauth
+```
+MCPAPI="sk-123456" 
+
+ cat  /home/ubuntu/.config/opencode/opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "fs": {
+      "type": "remote",
+      "url": "https://prev-third-columnists-cet.trycloudflare.com/fs",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:MCPAPI}",
+        "X-Api-Key": "{env:MCPAPI}"
+      }
+    },
+    "shell": {
+      "type": "remote",
+      "url": "https://prev-third-columnists-cet.trycloudflare.com/shell",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:MCPAPI}",
+        "X-Api-Key": "{env:MCPAPI}"
+      }
+    }
+  }
+}
 ```
 
 ### Docker

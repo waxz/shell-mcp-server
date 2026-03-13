@@ -99,6 +99,12 @@ def register_tools(server: FastMCP) -> None:
         # return [types.TextContent(type="text", text="\n\n".join(parts))]
 
     @server.tool(task=TaskConfig(mode="optional"))
+    async def list_trusted_commands()-> dict:
+        """ Get list of trusted commands"""
+        return config.SETTINGS.TRUSTED_COMMANDS
+
+
+    @server.tool(task=TaskConfig(mode="optional"))
     async def execute_command(
         command: str,
         cwd: str,

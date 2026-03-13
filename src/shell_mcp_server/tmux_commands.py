@@ -24,10 +24,31 @@ def build_tmux_bootstrap_command(session_name: str) -> str:
     # )
 
 
+
 def build_tmux_send_keys_command(session_name: str, command: str) -> str:
     session = shlex.quote(validate_tmux_session_name(session_name))
+    
+    # Split the command into individual lines
+    lines = command.strip().splitlines()
+    
+    tmux_segments = []
+    for line in lines:
+        safe_line = shlex.quote(_sanitize_value(line, "command"))
+        # You MUST include 'tmux' before every 'send-keys'
+        tmux_segments.append(f"tmux send-keys -t {session} -l {safe_line}")
+        tmux_segments.append(f"tmux send-keys -t {session} Enter")
+    
+    # Join with ';' so PowerShell runs them one after another
+    return " ; ".join(tmux_segments)
+    
+def build_tmux_send_keys_command1(session_name: str, command: str) -> str:
+    session = shlex.quote(validate_tmux_session_name(session_name))
+    command = command.rstrip('\n')
     safe_command = shlex.quote(_sanitize_value(command, "command"))
-    return f"tmux send-keys -t {session} {safe_command} Enter"
+    print(f"build_tmux_send_keys_command command: {command}")
+    cmd = f"tmux send-keys -t {session} -l {safe_command} Enter"
+    print(f"build_tmux_send_keys_command: {cmd}")
+    return cmd
 
 
 def build_tmux_reset_pane_command(session_name: str) -> [str]:
