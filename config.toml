@@ -12,15 +12,12 @@ PATH = "/shell"
 PORT = 8002
 # API_KEYS = "sk-1234"
 API_KEYS = "sk-123456"
-[DOCKER_CONFIG]
-config_file = "docker/docker-compose.yml"
-service = "drun1"
 
 [DOCKER_CONFIG.windows]
 work_dir = "/app/dev/repo"
 host_root = "C:/Users/axdev/dev/repo"
 # host_root = "."
-allow_direcotories_host = [".", "C:/Users/axdev/dev/Openness_examples_python"]
+allow_direcotories_host = [".", "C:/Users/axdev/dev/repo"]
 allow_direcotories_docker = [".", "/tmp"]
 
 
@@ -41,11 +38,11 @@ shell = "bash"
 cwd = "./data"
 description = "run pwd"
 
-[TRUSTED_COMMANDS.t_ax]
+[TRUSTED_COMMANDS.t_ax_test]
 command = """
 pwd
-( ../../.venv/Scripts/activate -or $true ) -or ( python test.py )
+apax test
 """
 shell = "bash"
-cwd = "C:/Users/axdev/dev/Openness_examples_python"
+cwd = "C:/Users/axdev/dev/repo/ax-dev/myquickstart"
 description = "run ax build"

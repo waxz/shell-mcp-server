@@ -102,7 +102,6 @@ class Settings(BaseSettings):
     ALLOWED_DIRECTORIES_DOCKER: list[str] = Field(default_factory=list)
 
     DOCKER_CONFIG: Dict[str, Any] = {}
-    DOCKER_SHELL_COMPOSE_FILE: str | None = None
     DOCKER_SHELL_SERVICE: str | None = None
     DOCKER_SHELL_ENV_FILE: str | None = None
     DOCKER_SANDBOX_WORKDIR: str | None = None
@@ -166,16 +165,6 @@ class Settings(BaseSettings):
     def _normalize_allowed_dirs_host(cls, value: list[str] | None) -> list[str]:
         return _normalize_directory_list(value)
 
-    @field_validator("DOCKER_SHELL_COMPOSE_FILE")
-    @classmethod
-    def _normalize_docker_shell_compose_file(cls, value: str | None) -> str | None:
-        if not value:
-            return None
-        path = Path(value).resolve()
-        # Check if path exists AND is a file
-        if not path.is_file():
-            raise ValueError(f"Compose file not found or is not a file: {path}")
-        return str(path)
 
     @field_validator("DOCKER_SHELL_SERVICE")
     @classmethod
@@ -232,20 +221,6 @@ class Settings(BaseSettings):
     def _validate_runtime_contract(self) -> "Settings":
         if self.TRANSPORT == "http" and not self.PATH:
             raise ValueError("PATH is required when TRANSPORT is 'http'")
-
-        if self.UNTRUSTED_USE_DOCKER_SANDBOX:
-            if not self.DOCKER_SHELL_COMPOSE_FILE:
-                raise ValueError(
-                    "DOCKER_SHELL_COMPOSE_FILE is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
-                )
-            if not self.DOCKER_SHELL_SERVICE:
-                raise ValueError(
-                    "DOCKER_SHELL_SERVICE is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
-                )
-            if not self.DOCKER_SANDBOX_WORKDIR:
-                raise ValueError(
-                    "DOCKER_SANDBOX_WORKDIR is required when UNTRUSTED_USE_DOCKER_SANDBOX is true"
-                )
                 
 
 
@@ -316,7 +291,6 @@ class Settings(BaseSettings):
             "PLATFORM": platform_name,
             "ALLOWED_SHELLS": _default_shells(platform_name),
             "DOCKER_CONFIG": {},
-            "DOCKER_SHELL_COMPOSE_FILE": None,
         }
 
         config_path = Path(CONFIG_FILE_PATH)
@@ -345,9 +319,7 @@ class Settings(BaseSettings):
         if getattr(args, "directories", None):
             merged["ALLOWED_DIRECTORIES_HOST"] = list(args.directories)
 
-        merged["DOCKER_SHELL_COMPOSE_FILE"] = merged.get("DOCKER_CONFIG", {}).get(
-            "config_file"
-        )
+
         merged["DOCKER_SHELL_SERVICE"] = merged.get("DOCKER_CONFIG", {}).get("service")
         merged["DOCKER_SHELL_ENV_FILE"] = merged.get("DOCKER_CONFIG", {}).get("env_file")
 
